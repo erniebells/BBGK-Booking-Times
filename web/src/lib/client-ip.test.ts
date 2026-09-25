@@ -34,15 +34,26 @@ describe("Client IP Extraction", () => {
     headers.set("x-real-ip", "203.0.113.5");
     
     const ip = getClientIp(headers);
-    expect(ip).toBe("unknown-ip");
+    expect(ip).toBeNull();
     
     delete process.env.TRUST_PROXY;
   });
 
-  it("should return unknown-ip when no proxy headers and TRUST_PROXY is unset", () => {
+  it("should return null when no proxy headers and TRUST_PROXY is unset", () => {
     const headers = new Headers();
     
     const ip = getClientIp(headers);
-    expect(ip).toBe("unknown-ip");
+    expect(ip).toBeNull();
+  });
+
+  it("should return null when TRUST_PROXY is true but no headers are present", () => {
+    process.env.TRUST_PROXY = "true";
+    
+    const headers = new Headers();
+    
+    const ip = getClientIp(headers);
+    expect(ip).toBeNull();
+    
+    delete process.env.TRUST_PROXY;
   });
 });

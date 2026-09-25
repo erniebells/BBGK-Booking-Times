@@ -29,6 +29,8 @@ services:
       DATABASE_URL: postgresql://golfclub:${POSTGRES_PASSWORD}@db:5432/boggoms_golf
       AUTH_SECRET: ${AUTH_SECRET}
       AUTH_TRUST_HOST: "true"
+      AUTH_URL: ${AUTH_URL:-}
+      TRUST_PROXY: ${TRUST_PROXY:-false}
       NODE_ENV: production
       INITIAL_ADMIN_EMAIL: ${INITIAL_ADMIN_EMAIL}
       INITIAL_ADMIN_PASSWORD: ${INITIAL_ADMIN_PASSWORD}

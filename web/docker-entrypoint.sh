@@ -2,12 +2,12 @@
 set -e
 
 echo "Running database migrations..."
-node_modules/.bin/prisma migrate deploy
+npx prisma migrate deploy
 
 echo "Bootstrapping initial admin and settings..."
 node -e "
 const { PrismaClient } = require('@prisma/client');
-const { hash } = require('bcryptjs');
+const bcrypt = require('bcryptjs');
 
 const prisma = new PrismaClient();
 
@@ -36,7 +36,7 @@ async function bootstrap() {
       const password = process.env.INITIAL_ADMIN_PASSWORD;
 
       if (email && password) {
-        const passwordHash = await hash(password, 12);
+        const passwordHash = await bcrypt.hash(password, 12);
         await prisma.user.create({
           data: {
             email: email.toLowerCase().trim(),

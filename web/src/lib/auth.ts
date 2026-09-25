@@ -183,6 +183,17 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
       return session;
     },
   },
+  logger: {
+    error(error) {
+      // Don't log full stack traces for ordinary failed login attempts
+      if (error.name === "CredentialsSignin") {
+        // Silently ignore - expected for wrong passwords
+        return;
+      }
+      // Log other errors normally
+      console.error("NextAuth error:", error);
+    },
+  },
 });
 
 export async function requireSession() {

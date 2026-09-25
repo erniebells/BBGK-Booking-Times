@@ -42,9 +42,17 @@ COPY --from=builder /app/public ./public
 COPY --from=builder /app/.next/standalone ./
 COPY --from=builder /app/.next/static ./.next/static
 COPY --from=builder /app/prisma ./prisma
+
+# Install runtime dependencies that Next standalone doesn't include
+# These are needed for migrations and bootstrap
+RUN npm install --omit=dev \
+    prisma@6.19.3 \
+    @prisma/client@6.19.3 \
+    @prisma/engines@6.19.3 \
+    bcryptjs@3.0.2
+
+# Copy Prisma generated client from builder
 COPY --from=builder /app/node_modules/.prisma ./node_modules/.prisma
-COPY --from=builder /app/node_modules/@prisma ./node_modules/@prisma
-COPY --from=builder /app/node_modules/prisma ./node_modules/prisma
 
 # Copy and set permissions for entrypoint before switching to nextjs user
 COPY --chmod=755 docker-entrypoint.sh /app/docker-entrypoint.sh

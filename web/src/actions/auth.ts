@@ -3,12 +3,14 @@
 import { hash } from "bcryptjs";
 import { AuthError } from "next-auth";
 import { z } from "zod";
+import { headers } from "next/headers";
 import { prisma } from "@/lib/prisma";
 import { signIn, signOut } from "@/lib/auth";
-import { consumeRateLimit } from "@/lib/rate-limit";
+import { consumeRateLimit, consumeMultipleRateLimits } from "@/lib/rate-limit";
 import { generateOtpCode, hashOtp, sendVerificationEmail } from "@/lib/email";
 import { writeAudit } from "@/lib/audit";
 import { normalizeMemberName } from "@/lib/member";
+import { getClientIp } from "@/lib/client-ip";
 import { AccountStatus, Role } from "@prisma/client";
 import { redirect } from "next/navigation";
 
@@ -192,11 +194,26 @@ export async function loginAction(
     ? identifier.toLowerCase()
     : normalizeMemberName(identifier);
   
-  // Note: We can't get IP directly in server actions, but the NextAuth route handles IP-based limiting
-  // Here we limit by identifier only
-  const rl = await consumeRateLimit(`login:${normalizedKey || "unknown"}`, 20, 15 * 60 * 1000);
-  if (!rl.ok) {
-    return { ok: false, error: `Too many attempts. Try again in ${rl.retryAfterSec}s.` };
+  // Get client IP for rate limiting
+  const headersList = await headers();
+  const ip = getClientIp(headersList);
+  
+  if (ip) {
+    // Rate limit by both identifier and IP
+    const keys = [
+      `login:${normalizedKey || "unknown"}`,
+      `login-ip:${ip}`,
+    ];
+    const rl = await consumeMultipleRateLimits(keys, 20, 15 * 60 * 1000);
+    if (!rl.ok) {
+      return { ok: false, error: `Too many attempts. Try again in ${rl.retryAfterSec}s.` };
+    }
+  } else {
+    // No reliable IP - only limit by identifier
+    const rl = await consumeRateLimit(`login:${normalizedKey || "unknown"}`, 20, 15 * 60 * 1000);
+    if (!rl.ok) {
+      return { ok: false, error: `Too many attempts. Try again in ${rl.retryAfterSec}s.` };
+    }
   }
 
   try {

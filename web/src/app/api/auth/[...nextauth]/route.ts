@@ -1,6 +1,6 @@
 import { handlers } from "@/lib/auth";
 import { NextRequest, NextResponse } from "next/server";
-import { consumeMultipleRateLimits } from "@/lib/rate-limit";
+import { consumeMultipleRateLimits, consumeRateLimit } from "@/lib/rate-limit";
 import { normalizeMemberName } from "@/lib/member";
 import { getClientIp } from "@/lib/client-ip";
 
@@ -23,18 +23,34 @@ async function rateLimitedPost(req: NextRequest) {
       ? identifier.toLowerCase()
       : normalizeMemberName(identifier);
 
-    // Rate limit by both normalized identifier and IP
-    const keys = [
-      `auth-callback:${normalizedKey || "unknown"}`,
-      `auth-callback-ip:${ip}`,
-    ];
-    
-    const rl = await consumeMultipleRateLimits(keys, 20, 15 * 60 * 1000);
-    if (!rl.ok) {
-      return NextResponse.json(
-        { error: "Too many login attempts" },
-        { status: 429 }
+    if (ip) {
+      // We have a reliable IP - rate limit by both identifier and IP
+      const keys = [
+        `auth-callback:${normalizedKey || "unknown"}`,
+        `auth-callback-ip:${ip}`,
+      ];
+      
+      const rl = await consumeMultipleRateLimits(keys, 20, 15 * 60 * 1000);
+      if (!rl.ok) {
+        return NextResponse.json(
+          { error: "Too many login attempts" },
+          { status: 429 }
+        );
+      }
+    } else {
+      // No reliable IP available - only limit by identifier
+      // Use a higher per-name limit since we can't limit by IP
+      const rl = await consumeRateLimit(
+        `auth-callback:${normalizedKey || "unknown"}`,
+        20,
+        15 * 60 * 1000
       );
+      if (!rl.ok) {
+        return NextResponse.json(
+          { error: "Too many login attempts" },
+          { status: 429 }
+        );
+      }
     }
   } catch {
     // If parsing fails, still allow through (will be handled by NextAuth)
