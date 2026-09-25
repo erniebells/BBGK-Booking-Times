@@ -1,0 +1,9 @@
+sep=;
+"MEMBERSHIP NUMBER";"NAME";"ADDRESS";"EMAIL";"CLUB CATEGORY";"HOME PHONE";"WORK PHONE";"MOBILE";"STATUS";"MEMBERSHIP CATEGORY";"HOME SECONDARY"
+"0000000001";"Smith, John";"123 Fairway Drive, Mossel Bay, 6500";"john.smith@example.com";"UDEF";"0441234567";"0441234568";"0821234567";"Active";"Club Member";""
+"0000000002";"Roux (Bobby), Ernst";"456 Golf View Road, Mossel Bay, 6500";"";"UDEF";"";"";"";"Active";"Club Member";""
+"0000000003";"van der Merwe, Jan";"789 Ocean Drive, Mossel Bay, 6500";"jan.vdm@example.com";"UDEF";"0449876543";"";"";"Active";"Club Member";""
+"0000000004";"du Plessis, Pieter";"12 Bay Street, Mossel Bay, 6500";"pieter@example.com";"UDEF";"0447654321";"";"0829876543";"Active";"Club Member";""
+"0000000005";"Williams (Jenny), Jane";"34 Marine Drive, Mossel Bay, 6500";"jane.williams@example.com";"UDEF";"0443216549";"0443216550";"0823456789";"Active";"Club Member";""
+"0000000006";"Botha, Hendrik";"56 Lighthouse Way, Mossel Bay, 6500";"";"UDEF";"";"";"";"Resigned";"Club Member";""
+"0000000007";"Pretorius, Sarah";"78 Coastal Road, Mossel Bay, 6500";"sarah.p@example.com";"UDEF";"0445678901";"";"0821122334";"Active";"Club Member";""

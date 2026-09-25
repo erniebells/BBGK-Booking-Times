@@ -1,17 +1,22 @@
-"use server";
-
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { AccountStatus, PlayingDayStatus, PlayingDayType, Role } from "@prisma/client";
 import { requireAdmin } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { writeAudit } from "@/lib/audit";
+import { hash } from "bcryptjs";
 import {
   combineDateAndTimeUtc,
   generateSlotTimes,
 } from "@/lib/slots";
 import { getClubSettings } from "@/lib/club";
 import { BookingError, cancelBooking, createBooking } from "@/lib/booking";
+import {
+  parseDotGolfCsv,
+  normalizeMemberName,
+  hashMemberCredentials,
+  type MemberImportResult,
+} from "@/lib/member";
 import type { ActionResult } from "./auth";
 
 const daySchema = z.object({
@@ -319,4 +324,246 @@ export async function updatePlayingDayTimes(
 
   revalidatePath("/admin");
   return { ok: true, message: "Tee sheet regenerated." };
+}
+
+export async function importMembersFromCsv(
+  _prev: ActionResult | null,
+  formData: FormData,
+): Promise<ActionResult & { result?: MemberImportResult }> {
+  const session = await requireAdmin();
+  
+  const file = formData.get("file") as File | null;
+  if (!file) {
+    return { ok: false, error: "No file uploaded." };
+  }
+
+  let csvContent: string;
+  try {
+    csvContent = await file.text();
+  } catch {
+    return { ok: false, error: "Could not read file." };
+  }
+
+  let members;
+  try {
+    members = parseDotGolfCsv(csvContent);
+  } catch (e) {
+    return {
+      ok: false,
+      error: e instanceof Error ? e.message : "Invalid CSV format.",
+    };
+  }
+
+  const result: MemberImportResult = {
+    created: 0,
+    updated: 0,
+    disabled: 0,
+    skipped: 0,
+    conflicts: [],
+  };
+
+  // Track normalized names to detect duplicates in this import
+  const normalizedNames = new Map<string, string[]>();
+  
+  for (const member of members) {
+    const normalized = normalizeMemberName(member.name);
+    if (!normalizedNames.has(normalized)) {
+      normalizedNames.set(normalized, []);
+    }
+    normalizedNames.get(normalized)!.push(member.name);
+  }
+
+  // Process each member
+  for (const member of members) {
+    const membershipNumber = member.membershipNumber.trim();
+    const normalizedName = normalizeMemberName(member.name);
+    const email = member.email.trim().toLowerCase() || `member${membershipNumber}@placeholder.local`;
+
+    // Check for duplicate normalized names
+    const duplicates = normalizedNames.get(normalizedName) || [];
+    if (duplicates.length > 1) {
+      result.conflicts.push(
+        `Duplicate name: "${member.name}" (normalized: "${normalizedName}") - skipped`
+      );
+      result.skipped++;
+      continue;
+    }
+
+    // Check if membership number already exists
+    const existing = await prisma.user.findUnique({
+      where: { membershipNumber },
+    });
+
+    if (member.status === "Active") {
+      // Create or update active member
+      const { emailHash, numberHash } = await hashMemberCredentials(
+        member.email || "",
+        membershipNumber,
+      );
+
+      if (existing) {
+        // Update existing member
+        await prisma.user.update({
+          where: { membershipNumber },
+          data: {
+            name: member.name,
+            normalizedName,
+            email,
+            emailPasswordHash: emailHash,
+            membershipNumberPasswordHash: numberHash,
+            status: AccountStatus.ACTIVE,
+            phone: member.mobile || member.homePhone || null,
+          },
+        });
+        result.updated++;
+      } else {
+        // Check for conflicting normalized name
+        const nameConflict = await prisma.user.findFirst({
+          where: {
+            normalizedName,
+            role: "MEMBER",
+          },
+        });
+
+        if (nameConflict) {
+          result.conflicts.push(
+            `Name conflict: "${member.name}" matches existing member ${nameConflict.name} - skipped`
+          );
+          result.skipped++;
+          continue;
+        }
+
+        // Create new member - use membership number as initial password hash
+        await prisma.user.create({
+          data: {
+            name: member.name,
+            normalizedName,
+            email,
+            membershipNumber,
+            passwordHash: numberHash, // Backwards compatibility
+            emailPasswordHash: emailHash,
+            membershipNumberPasswordHash: numberHash,
+            role: Role.MEMBER,
+            status: AccountStatus.ACTIVE,
+            emailVerifiedAt: new Date(),
+            phone: member.mobile || member.homePhone || null,
+          },
+        });
+        result.created++;
+      }
+    } else if (member.status === "Resigned" && existing) {
+      // Disable resigned members who were previously imported
+      await prisma.user.update({
+        where: { membershipNumber },
+        data: { status: AccountStatus.DISABLED },
+      });
+      result.disabled++;
+    } else {
+      // Skip resigned members who don't exist
+      result.skipped++;
+    }
+  }
+
+  // Log the import
+  await prisma.memberImportLog.create({
+    data: {
+      filename: file.name,
+      importedBy: session.user.id,
+      created: result.created,
+      updated: result.updated,
+      disabled: result.disabled,
+      skipped: result.skipped,
+      conflicts: result.conflicts.length > 0 ? JSON.stringify(result.conflicts) : null,
+    },
+  });
+
+  await writeAudit({
+    actorId: session.user.id,
+    action: "member.import",
+    entityType: "User",
+    metadata: result,
+  });
+
+  revalidatePath("/admin/members");
+  return {
+    ok: true,
+    message: `Import complete: ${result.created} created, ${result.updated} updated, ${result.disabled} disabled, ${result.skipped} skipped`,
+    result,
+  };
+}
+
+export async function updateMemberDetails(
+  memberId: string,
+  updates: { name?: string; email?: string; status?: AccountStatus },
+): Promise<ActionResult> {
+  const session = await requireAdmin();
+  
+  const member = await prisma.user.findUnique({
+    where: { id: memberId },
+  });
+
+  if (!member || member.role !== "MEMBER") {
+    return { ok: false, error: "Member not found." };
+  }
+
+  const data: {
+    name?: string;
+    normalizedName?: string;
+    email?: string;
+    emailPasswordHash?: string;
+    status?: AccountStatus;
+  } = {};
+  
+  if (updates.name && updates.name !== member.name) {
+    const normalizedName = normalizeMemberName(updates.name);
+    
+    // Check for duplicate normalized name
+    const conflict = await prisma.user.findFirst({
+      where: {
+        normalizedName,
+        role: "MEMBER",
+        id: { not: memberId },
+      },
+    });
+
+    if (conflict) {
+      return {
+        ok: false,
+        error: `Name "${updates.name}" conflicts with existing member: ${conflict.name}`,
+      };
+    }
+
+    data.name = updates.name;
+    data.normalizedName = normalizedName;
+  }
+
+  if (updates.email && updates.email !== member.email) {
+    data.email = updates.email.toLowerCase().trim();
+    
+    // Update email password hash
+    if (member.membershipNumber && updates.email) {
+      const emailHash = await hash(updates.email.toLowerCase().trim(), 12);
+      data.emailPasswordHash = emailHash;
+    }
+  }
+
+  if (updates.status) {
+    data.status = updates.status;
+  }
+
+  await prisma.user.update({
+    where: { id: memberId },
+    data,
+  });
+
+  await writeAudit({
+    actorId: session.user.id,
+    action: "member.update",
+    entityType: "User",
+    entityId: memberId,
+    metadata: updates,
+  });
+
+  revalidatePath("/admin/members");
+  return { ok: true, message: "Member updated." };
 }

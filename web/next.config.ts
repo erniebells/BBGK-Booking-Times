@@ -1,7 +1,8 @@
 import type { NextConfig } from "next";
+import "./src/env-validation";
 
 const nextConfig: NextConfig = {
-  /* config options here */
+  output: "standalone",
 };
 
 export default nextConfig;

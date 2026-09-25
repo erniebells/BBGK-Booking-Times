@@ -8,7 +8,7 @@ export async function SiteHeader() {
     <header className="border-b border-emerald-900/15 bg-[#f3f6f1]/90 backdrop-blur">
       <div className="mx-auto flex max-w-5xl items-center justify-between gap-4 px-4 py-3">
         <Link href="/" className="font-display text-xl tracking-tight text-emerald-950">
-          Demo Golf Club
+          Boggoms Bay Golf Club
         </Link>
         <nav className="flex flex-wrap items-center gap-3 text-sm text-emerald-950/80">
           {session?.user ? (

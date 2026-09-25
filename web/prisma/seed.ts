@@ -4,11 +4,12 @@ import { PrismaClient, Role, AccountStatus } from "@prisma/client";
 const prisma = new PrismaClient();
 
 async function main() {
+  // Ensure club settings exist
   await prisma.clubSettings.upsert({
     where: { id: 1 },
     create: {
       id: 1,
-      clubName: "Demo Golf Club",
+      clubName: "Boggoms Bay Golf Club",
       timezone: "Africa/Johannesburg",
       bookingWindowDays: 7,
       cancellationLeadHours: 24,
@@ -16,44 +17,38 @@ async function main() {
     update: {},
   });
 
-  const adminHash = await hash("admin123!", 12);
-  await prisma.user.upsert({
-    where: { email: "admin@demo.golf" },
-    create: {
-      email: "admin@demo.golf",
-      name: "Club Admin",
-      passwordHash: adminHash,
-      role: Role.ADMIN,
-      status: AccountStatus.ACTIVE,
-      emailVerifiedAt: new Date(),
-    },
-    update: {
-      passwordHash: adminHash,
-      role: Role.ADMIN,
-      status: AccountStatus.ACTIVE,
-      emailVerifiedAt: new Date(),
-    },
+  // Bootstrap initial admin from env vars (only if no admin exists)
+  const adminCount = await prisma.user.count({
+    where: { role: Role.ADMIN },
   });
 
-  const memberHash = await hash("member123!", 12);
-  await prisma.user.upsert({
-    where: { email: "member@demo.golf" },
-    create: {
-      email: "member@demo.golf",
-      name: "Demo Member",
-      passwordHash: memberHash,
-      role: Role.MEMBER,
-      status: AccountStatus.ACTIVE,
-      emailVerifiedAt: new Date(),
-    },
-    update: {
-      passwordHash: memberHash,
-      status: AccountStatus.ACTIVE,
-      emailVerifiedAt: new Date(),
-    },
-  });
+  if (adminCount === 0) {
+    const email = process.env.INITIAL_ADMIN_EMAIL;
+    const password = process.env.INITIAL_ADMIN_PASSWORD;
 
-  console.log("Seeded club settings, admin@demo.golf / admin123!, member@demo.golf / member123!");
+    if (email && password) {
+      const passwordHash = await hash(password, 12);
+      await prisma.user.create({
+        data: {
+          email: email.toLowerCase().trim(),
+          name: "Admin",
+          passwordHash,
+          role: Role.ADMIN,
+          status: AccountStatus.ACTIVE,
+          emailVerifiedAt: new Date(),
+        },
+      });
+      console.log(`✓ Initial admin created: ${email}`);
+    } else {
+      console.warn(
+        "⚠ No admin accounts exist. Set INITIAL_ADMIN_EMAIL and INITIAL_ADMIN_PASSWORD to create one."
+      );
+    }
+  } else {
+    console.log(`✓ ${adminCount} admin account(s) exist`);
+  }
+
+  console.log("✓ Seed complete");
 }
 
 main()

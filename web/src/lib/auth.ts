@@ -3,6 +3,7 @@ import Credentials from "next-auth/providers/credentials";
 import { compare } from "bcryptjs";
 import { z } from "zod";
 import { prisma } from "./prisma";
+import { normalizeMemberName } from "./member";
 import type { Role, AccountStatus } from "@prisma/client";
 
 declare module "next-auth" {
@@ -33,9 +34,65 @@ declare module "next-auth/jwt" {
 }
 
 const credentialsSchema = z.object({
-  email: z.string().email(),
+  identifier: z.string().min(1),
   password: z.string().min(1),
 });
+
+/**
+ * Authenticate a user by email (for admins/guests) or name (for members).
+ * Members can use either their email address OR membership number as password.
+ */
+async function authenticateUser(identifier: string, password: string) {
+  const trimmedIdentifier = identifier.trim();
+  const trimmedPassword = password.trim();
+
+  // Try email-based login first (for admins and guests)
+  if (trimmedIdentifier.includes("@")) {
+    const email = trimmedIdentifier.toLowerCase();
+    const user = await prisma.user.findUnique({ where: { email } });
+    if (user && user.passwordHash) {
+      const valid = await compare(trimmedPassword, user.passwordHash);
+      if (valid && user.status !== "DISABLED") {
+        return user;
+      }
+    }
+    return null;
+  }
+
+  // Member name-based login
+  const normalizedInput = normalizeMemberName(trimmedIdentifier);
+  
+  // Find all active members with matching normalized name
+  const candidates = await prisma.user.findMany({
+    where: {
+      role: "MEMBER",
+      normalizedName: normalizedInput,
+      status: { not: "DISABLED" },
+    },
+  });
+
+  if (candidates.length === 0) return null;
+  if (candidates.length > 1) {
+    // Multiple members with same normalized name - ambiguous login blocked
+    return null;
+  }
+
+  const user = candidates[0];
+
+  // Try email password first (if user has email)
+  if (user.emailPasswordHash) {
+    const emailValid = await compare(trimmedPassword.toLowerCase(), user.emailPasswordHash);
+    if (emailValid) return user;
+  }
+
+  // Try membership number password
+  if (user.membershipNumberPasswordHash) {
+    const numberValid = await compare(trimmedPassword, user.membershipNumberPasswordHash);
+    if (numberValid) return user;
+  }
+
+  return null;
+}
 
 export const { handlers, auth, signIn, signOut } = NextAuth({
   session: { strategy: "jwt" },
@@ -46,18 +103,20 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
     Credentials({
       name: "credentials",
       credentials: {
-        email: { label: "Email", type: "email" },
+        identifier: { label: "Email or Name", type: "text" },
         password: { label: "Password", type: "password" },
       },
       async authorize(raw) {
         const parsed = credentialsSchema.safeParse(raw);
         if (!parsed.success) return null;
-        const email = parsed.data.email.toLowerCase().trim();
-        const user = await prisma.user.findUnique({ where: { email } });
+        
+        const user = await authenticateUser(
+          parsed.data.identifier,
+          parsed.data.password,
+        );
+        
         if (!user) return null;
-        const valid = await compare(parsed.data.password, user.passwordHash);
-        if (!valid) return null;
-        if (user.status === "DISABLED") return null;
+
         return {
           id: user.id,
           email: user.email,
@@ -70,7 +129,7 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
     }),
   ],
   callbacks: {
-    async jwt({ token, user, trigger }) {
+    async jwt({ token, user }) {
       if (user) {
         token.id = user.id!;
         token.role = user.role;
@@ -78,8 +137,20 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         token.emailVerifiedAt = user.emailVerifiedAt
           ? user.emailVerifiedAt.toISOString()
           : null;
-      } else if (trigger === "update" && token.id) {
-        const fresh = await prisma.user.findUnique({ where: { id: token.id } });
+      }
+      
+      // Always refresh role and status from DB on every request
+      if (token.id) {
+        const fresh = await prisma.user.findUnique({ 
+          where: { id: token.id },
+          select: { 
+            role: true, 
+            status: true, 
+            emailVerifiedAt: true, 
+            name: true, 
+            email: true 
+          }
+        });
         if (fresh) {
           token.role = fresh.role;
           token.status = fresh.status;
@@ -90,6 +161,7 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
           token.email = fresh.email;
         }
       }
+      
       return token;
     },
     async session({ session, token }) {

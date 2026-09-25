@@ -1,20 +1,47 @@
 services:
   db:
     image: postgres:16-alpine
+    container_name: boggoms-golf-db
     restart: unless-stopped
     environment:
-      POSTGRES_USER: golf
-      POSTGRES_PASSWORD: golf
-      POSTGRES_DB: golf_tee
-    ports:
-      - "5432:5432"
+      POSTGRES_USER: golfclub
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: boggoms_golf
     volumes:
-      - golf_pg_data:/var/lib/postgresql/data
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - golf-network
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U golf -d golf_tee"]
-      interval: 5s
+      test: ["CMD-SHELL", "pg_isready -U golfclub -d boggoms_golf"]
+      interval: 10s
       timeout: 5s
-      retries: 10
+      retries: 5
+
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: boggoms-golf-app
+    restart: unless-stopped
+    ports:
+      - "3100:3000"
+    environment:
+      DATABASE_URL: postgresql://golfclub:${POSTGRES_PASSWORD}@db:5432/boggoms_golf
+      AUTH_SECRET: ${AUTH_SECRET}
+      AUTH_TRUST_HOST: "true"
+      NODE_ENV: production
+      INITIAL_ADMIN_EMAIL: ${INITIAL_ADMIN_EMAIL}
+      INITIAL_ADMIN_PASSWORD: ${INITIAL_ADMIN_PASSWORD}
+    depends_on:
+      db:
+        condition: service_healthy
+    networks:
+      - golf-network
 
 volumes:
-  golf_pg_data:
+  postgres_data:
+    driver: local
+
+networks:
+  golf-network:
+    driver: bridge

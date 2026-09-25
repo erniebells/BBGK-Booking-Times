@@ -8,6 +8,7 @@ import { signIn, signOut } from "@/lib/auth";
 import { consumeRateLimit } from "@/lib/rate-limit";
 import { generateOtpCode, hashOtp, sendVerificationEmail } from "@/lib/email";
 import { writeAudit } from "@/lib/audit";
+import { normalizeMemberName } from "@/lib/member";
 import { AccountStatus, Role } from "@prisma/client";
 import { redirect } from "next/navigation";
 
@@ -182,25 +183,29 @@ export async function loginAction(
   _prev: ActionResult | null,
   formData: FormData,
 ): Promise<ActionResult> {
-  const email = String(formData.get("email") ?? "")
-    .toLowerCase()
+  const identifier = String(formData.get("identifier") ?? "")
     .trim();
   const password = String(formData.get("password") ?? "");
 
-  const rl = await consumeRateLimit(`login:${email || "unknown"}`, 20, 15 * 60 * 1000);
+  // Apply rate limiting based on identifier (email or normalized name)
+  const normalizedKey = identifier.includes("@")
+    ? identifier.toLowerCase()
+    : normalizeMemberName(identifier);
+  
+  const rl = await consumeRateLimit(`login:${normalizedKey || "unknown"}`, 20, 15 * 60 * 1000);
   if (!rl.ok) {
     return { ok: false, error: `Too many attempts. Try again in ${rl.retryAfterSec}s.` };
   }
 
   try {
     await signIn("credentials", {
-      email,
+      identifier,
       password,
       redirectTo: "/",
     });
   } catch (e) {
     if (e instanceof AuthError) {
-      return { ok: false, error: "Invalid email or password." };
+      return { ok: false, error: "Invalid credentials." };
     }
     throw e;
   }

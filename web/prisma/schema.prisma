@@ -3,7 +3,7 @@ generator client {
 }
 
 datasource db {
-  provider = "sqlite"
+  provider = "postgresql"
   url      = env("DATABASE_URL")
 }
 
@@ -33,28 +33,49 @@ enum PlayingDayStatus {
 }
 
 model User {
-  id              String        @id @default(cuid())
-  email           String        @unique
-  phone           String?
-  name            String
-  passwordHash    String
-  role            Role
-  status          AccountStatus @default(PENDING_APPROVAL)
-  emailVerifiedAt DateTime?
-  createdAt       DateTime      @default(now())
-  updatedAt       DateTime      @updatedAt
+  id                          String        @id @default(cuid())
+  email                       String        @unique
+  phone                       String?
+  name                        String
+  normalizedName              String?
+  membershipNumber            String?       @unique
+  passwordHash                String
+  emailPasswordHash           String?
+  membershipNumberPasswordHash String?
+  role                        Role
+  status                      AccountStatus @default(PENDING_APPROVAL)
+  emailVerifiedAt             DateTime?
+  createdAt                   DateTime      @default(now())
+  updatedAt                   DateTime      @updatedAt
 
   bookings           Booking[]
   auditLogs          AuditLog[]          @relation("AuditActor")
   verificationTokens VerificationToken[]
+
+  @@index([normalizedName])
+  @@index([membershipNumber])
 }
 
 model ClubSettings {
   id                    Int    @id @default(1)
-  clubName              String @default("Demo Golf Club")
+  clubName              String @default("Boggoms Bay Golf Club")
   timezone              String @default("Africa/Johannesburg")
   bookingWindowDays     Int    @default(7)
   cancellationLeadHours Int    @default(24)
+}
+
+model MemberImportLog {
+  id          String   @id @default(cuid())
+  filename    String
+  importedBy  String
+  created     Int      @default(0)
+  updated     Int      @default(0)
+  disabled    Int      @default(0)
+  skipped     Int      @default(0)
+  conflicts   String?
+  createdAt   DateTime @default(now())
+
+  @@index([createdAt])
 }
 
 model PlayingDay {
