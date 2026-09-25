@@ -4,6 +4,7 @@ import { prisma } from "@/lib/prisma";
 import { updateMemberDetails } from "@/actions/admin";
 import MemberEditForm from "@/components/MemberEditForm";
 import type { ActionResult } from "@/actions/auth";
+import { AccountStatus } from "@prisma/client";
 
 export default async function AdminMemberEditPage({
   params,

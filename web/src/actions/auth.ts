@@ -187,11 +187,13 @@ export async function loginAction(
     .trim();
   const password = String(formData.get("password") ?? "");
 
-  // Apply rate limiting based on identifier (email or normalized name)
+  // Apply rate limiting based on identifier (email or normalized name) AND IP
   const normalizedKey = identifier.includes("@")
     ? identifier.toLowerCase()
     : normalizeMemberName(identifier);
   
+  // Note: We can't get IP directly in server actions, but the NextAuth route handles IP-based limiting
+  // Here we limit by identifier only
   const rl = await consumeRateLimit(`login:${normalizedKey || "unknown"}`, 20, 15 * 60 * 1000);
   if (!rl.ok) {
     return { ok: false, error: `Too many attempts. Try again in ${rl.retryAfterSec}s.` };

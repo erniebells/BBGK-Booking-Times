@@ -46,14 +46,19 @@ async function authenticateUser(identifier: string, password: string) {
   const trimmedIdentifier = identifier.trim();
   const trimmedPassword = password.trim();
 
-  // Try email-based login first (for admins and guests)
+  // Email-based login: ONLY for admins and guests (not members)
   if (trimmedIdentifier.includes("@")) {
     const email = trimmedIdentifier.toLowerCase();
     const user = await prisma.user.findUnique({ where: { email } });
-    if (user && user.passwordHash) {
-      const valid = await compare(trimmedPassword, user.passwordHash);
-      if (valid && user.status !== "DISABLED") {
-        return user;
+    
+    // Only allow email login for ADMIN and GUEST roles
+    // Members must login with their name
+    if (user && (user.role === "ADMIN" || user.role === "GUEST")) {
+      if (user.passwordHash) {
+        const valid = await compare(trimmedPassword, user.passwordHash);
+        if (valid && user.status !== "DISABLED") {
+          return user;
+        }
       }
     }
     return null;
@@ -79,8 +84,8 @@ async function authenticateUser(identifier: string, password: string) {
 
   const user = candidates[0];
 
-  // Try email password first (if user has email)
-  if (user.emailPasswordHash) {
+  // Try email password first (if user has a real email, not placeholder)
+  if (user.emailPasswordHash && !user.email.endsWith("@placeholder.local")) {
     const emailValid = await compare(trimmedPassword.toLowerCase(), user.emailPasswordHash);
     if (emailValid) return user;
   }

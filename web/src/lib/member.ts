@@ -83,7 +83,7 @@ export function parseDotGolfCsv(content: string): DotGolfMember[] {
     throw new Error("Expected first line to be 'sep=;'");
   }
   
-  // Line 2 is header (we don't need to parse it, just skip it)
+  // Line 2 is header - we don't parse it, just skip to data rows
   
   const members: DotGolfMember[] = [];
   
@@ -93,7 +93,8 @@ export function parseDotGolfCsv(content: string): DotGolfMember[] {
     if (!line) continue;
     
     const fields = parseCsvLine(line, ";");
-    if (fields.length < expectedColumns.length) continue;
+    // Expect 11 columns as per dot.golf format
+    if (fields.length < 11) continue;
     
     members.push({
       membershipNumber: fields[0],

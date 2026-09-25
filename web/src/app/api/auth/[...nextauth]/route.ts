@@ -2,6 +2,7 @@ import { handlers } from "@/lib/auth";
 import { NextRequest, NextResponse } from "next/server";
 import { consumeMultipleRateLimits } from "@/lib/rate-limit";
 import { normalizeMemberName } from "@/lib/member";
+import { getClientIp } from "@/lib/client-ip";
 
 async function rateLimitedPost(req: NextRequest) {
   // Only rate limit credentials callback
@@ -10,10 +11,7 @@ async function rateLimitedPost(req: NextRequest) {
     return handlers.POST(req);
   }
 
-  // Get IP for rate limiting
-  const ip = req.headers.get("x-forwarded-for")?.split(",")[0].trim() 
-    || req.headers.get("x-real-ip") 
-    || "unknown";
+  const ip = getClientIp(req.headers);
 
   try {
     // Parse the form data to get identifier

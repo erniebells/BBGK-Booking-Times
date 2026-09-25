@@ -1,3 +1,5 @@
+"use server";
+
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { AccountStatus, PlayingDayStatus, PlayingDayType, Role } from "@prisma/client";
@@ -481,7 +483,13 @@ export async function importMembersFromCsv(
     actorId: session.user.id,
     action: "member.import",
     entityType: "User",
-    metadata: result,
+    metadata: {
+      created: result.created,
+      updated: result.updated,
+      disabled: result.disabled,
+      skipped: result.skipped,
+      conflicts: result.conflicts.length,
+    },
   });
 
   revalidatePath("/admin/members");
