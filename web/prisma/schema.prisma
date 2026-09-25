@@ -1,0 +1,152 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  MEMBER
+  GUEST
+  ADMIN
+}
+
+enum AccountStatus {
+  ACTIVE
+  PENDING_APPROVAL
+  REJECTED
+  DISABLED
+}
+
+enum PlayingDayType {
+  NORMAL
+  TOURNAMENT
+}
+
+enum PlayingDayStatus {
+  DRAFT
+  PUBLISHED
+  CLOSED
+  CANCELLED
+}
+
+model User {
+  id              String        @id @default(cuid())
+  email           String        @unique
+  phone           String?
+  name            String
+  passwordHash    String
+  role            Role
+  status          AccountStatus @default(PENDING_APPROVAL)
+  emailVerifiedAt DateTime?
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+
+  bookings           Booking[]
+  auditLogs          AuditLog[]          @relation("AuditActor")
+  verificationTokens VerificationToken[]
+}
+
+model ClubSettings {
+  id                    Int    @id @default(1)
+  clubName              String @default("Demo Golf Club")
+  timezone              String @default("Africa/Johannesburg")
+  bookingWindowDays     Int    @default(7)
+  cancellationLeadHours Int    @default(24)
+}
+
+model PlayingDay {
+  id              String           @id @default(cuid())
+  title           String
+  date            DateTime
+  type            PlayingDayType   @default(NORMAL)
+  formatLabel     String?
+  notes           String?
+  firstTeeTime    String
+  lastTeeTime     String
+  intervalMinutes Int              @default(10)
+  status          PlayingDayStatus @default(DRAFT)
+  createdAt       DateTime         @default(now())
+  updatedAt       DateTime         @updatedAt
+
+  slots TeeSlot[]
+}
+
+model TeeSlot {
+  id        String   @id @default(cuid())
+  dayId     String
+  startsAt  DateTime
+  capacity  Int      @default(4)
+  createdAt DateTime @default(now())
+
+  day    PlayingDay     @relation(fields: [dayId], references: [id], onDelete: Cascade)
+  places BookingPlace[]
+
+  @@unique([dayId, startsAt])
+  @@index([startsAt])
+}
+
+model Booking {
+  id          String    @id @default(cuid())
+  reference   String    @unique
+  ownerId     String
+  cancelledAt DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  owner  User           @relation(fields: [ownerId], references: [id])
+  places BookingPlace[]
+
+  @@index([ownerId])
+}
+
+model BookingPlace {
+  id         String   @id @default(cuid())
+  bookingId  String
+  slotId     String
+  playerName String
+  position   Int
+  createdAt  DateTime @default(now())
+
+  booking Booking @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+  slot    TeeSlot @relation(fields: [slotId], references: [id], onDelete: Restrict)
+
+  @@unique([slotId, position])
+  @@index([bookingId])
+}
+
+model VerificationToken {
+  id        String    @id @default(cuid())
+  userId    String
+  codeHash  String
+  expiresAt DateTime
+  createdAt DateTime  @default(now())
+  usedAt    DateTime?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+model AuditLog {
+  id         String   @id @default(cuid())
+  actorId    String?
+  action     String
+  entityType String
+  entityId   String?
+  metadata   String?
+  createdAt  DateTime @default(now())
+
+  actor User? @relation("AuditActor", fields: [actorId], references: [id], onDelete: SetNull)
+
+  @@index([createdAt])
+  @@index([entityType, entityId])
+}
+
+model RateLimitBucket {
+  id          String   @id
+  count       Int      @default(0)
+  windowStart DateTime @default(now())
+}

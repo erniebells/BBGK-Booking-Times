@@ -1,0 +1,78 @@
+@import "tailwindcss";
+
+:root {
+  --background: #eef3ea;
+  --foreground: #102418;
+  --fairway: #1f5c3a;
+  --sand: #d8c7a2;
+  --sky: #cfe0ef;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --font-sans: var(--font-sans);
+  --font-display: var(--font-display);
+}
+
+body {
+  background:
+    radial-gradient(1200px 500px at 10% -10%, var(--sky), transparent 60%),
+    linear-gradient(180deg, #f7faf5 0%, var(--background) 40%, #e4ecdf 100%);
+  color: var(--foreground);
+  font-family: var(--font-sans), "Source Sans 3", system-ui, sans-serif;
+}
+
+.font-display {
+  font-family: var(--font-display), Fraunces, Georgia, serif;
+}
+
+input,
+select,
+textarea,
+button {
+  font: inherit;
+}
+
+input,
+select,
+textarea {
+  width: 100%;
+  border: 1px solid rgb(16 36 24 / 0.2);
+  border-radius: 0.5rem;
+  padding: 0.55rem 0.75rem;
+  background: #fff;
+}
+
+label {
+  display: grid;
+  gap: 0.35rem;
+  font-size: 0.9rem;
+  font-weight: 600;
+}
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 0.5rem;
+  background: var(--fairway);
+  color: white;
+  padding: 0.55rem 1rem;
+  font-weight: 600;
+}
+
+.btn:hover {
+  filter: brightness(1.05);
+}
+
+.btn-secondary {
+  background: transparent;
+  color: var(--fairway);
+  border: 1px solid rgb(31 92 58 / 0.35);
+}
+
+.card-stack {
+  display: grid;
+  gap: 1rem;
+}
