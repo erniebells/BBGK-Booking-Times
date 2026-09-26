@@ -150,8 +150,8 @@ export default async function AdminMembersPage({
               </Link>
             </div>
             <div className="text-emerald-950/70 text-xs mt-1">
-              {m.email}
-              {m.email.endsWith("@placeholder.local") && (
+              {m.email || "—"}
+              {m.email?.endsWith("@placeholder.local") && (
                 <span className="text-amber-600 ml-2">(no email)</span>
               )}
             </div>

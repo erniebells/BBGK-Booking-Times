@@ -82,7 +82,7 @@ describe("Member Authentication Security", () => {
     const placeholderEmail = "member2222222222@placeholder.local";
     
     // Verify the user exists
-    const member = await prisma.user.findUnique({
+    const member = await prisma.user.findFirst({
       where: { email: placeholderEmail },
     });
     expect(member).not.toBeNull();
@@ -97,7 +97,7 @@ describe("Member Authentication Security", () => {
   it("should NOT allow member to login with email+membership-number when they should use name+password", async () => {
     // This tests issue #10: passwordHash was set to membership number hash,
     // allowing email + membership-number login
-    const member = await prisma.user.findUnique({
+    const member = await prisma.user.findFirst({
       where: { email: "security.test@example.com" },
     });
     
@@ -112,7 +112,7 @@ describe("Member Authentication Security", () => {
   });
 
   it("should allow admin email+password login", async () => {
-    const admin = await prisma.user.findUnique({
+    const admin = await prisma.user.findFirst({
       where: { email: "admin@security-test.com" },
     });
     
@@ -127,7 +127,7 @@ describe("Member Authentication Security", () => {
   });
 
   it("should have proper password hashes for member with email", async () => {
-    const member = await prisma.user.findUnique({
+    const member = await prisma.user.findFirst({
       where: { email: "security.test@example.com" },
     });
     
@@ -142,7 +142,7 @@ describe("Member Authentication Security", () => {
   });
 
   it("should have only membership number hash for member without email", async () => {
-    const member = await prisma.user.findUnique({
+    const member = await prisma.user.findFirst({
       where: { membershipNumber: "2222222222" },
     });
     

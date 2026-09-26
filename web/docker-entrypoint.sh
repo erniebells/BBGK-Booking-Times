@@ -37,17 +37,30 @@ async function bootstrap() {
 
       if (email && password) {
         const passwordHash = await bcrypt.hash(password, 12);
-        await prisma.user.create({
-          data: {
+        
+        // Check if email already exists (for admin/guest uniqueness)
+        const existing = await prisma.user.findFirst({
+          where: { 
             email: email.toLowerCase().trim(),
-            name: 'Admin',
-            passwordHash,
-            role: 'ADMIN',
-            status: 'ACTIVE',
-            emailVerifiedAt: new Date(),
-          },
+            role: { in: ['ADMIN', 'GUEST'] }
+          }
         });
-        console.log('✓ Initial admin created:', email);
+        
+        if (!existing) {
+          await prisma.user.create({
+            data: {
+              email: email.toLowerCase().trim(),
+              name: 'Admin',
+              passwordHash,
+              role: 'ADMIN',
+              status: 'ACTIVE',
+              emailVerifiedAt: new Date(),
+            },
+          });
+          console.log('✓ Initial admin created:', email);
+        } else {
+          console.log('✓ Admin email already exists:', email);
+        }
       } else {
         console.warn(
           '⚠ No admin accounts exist. Set INITIAL_ADMIN_EMAIL and INITIAL_ADMIN_PASSWORD to create one.'

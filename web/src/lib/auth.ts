@@ -90,7 +90,7 @@ async function authenticateUser(identifier: string, password: string) {
   const user = candidates[0];
 
   // Try email password first (if user has a real email, not placeholder)
-  if (user.emailPasswordHash && !user.email.endsWith("@placeholder.local")) {
+  if (user.emailPasswordHash && user.email && !user.email.endsWith("@placeholder.local")) {
     const emailValid = await compare(trimmedPassword.toLowerCase(), user.emailPasswordHash);
     if (emailValid) return user;
   }
@@ -129,7 +129,7 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
 
         return {
           id: user.id,
-          email: user.email,
+          email: user.email ?? "",
           name: user.name,
           role: user.role,
           status: user.status,
@@ -168,7 +168,7 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
             ? fresh.emailVerifiedAt.toISOString()
             : null;
           token.name = fresh.name;
-          token.email = fresh.email;
+          token.email = fresh.email ?? "";
         }
       }
       

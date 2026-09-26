@@ -12,7 +12,7 @@ export default function MemberEditForm({
   member: {
     id: string;
     name: string;
-    email: string;
+    email: string | null;
     membershipNumber: string | null;
     status: string;
   };
@@ -64,8 +64,8 @@ export default function MemberEditForm({
           <input 
             name="email" 
             type="email" 
-            defaultValue={member.email} 
-            required 
+            defaultValue={member.email || ""} 
+            placeholder="No email"
           />
         </label>
 

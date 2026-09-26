@@ -11,7 +11,7 @@ export function AdminAddPlayersForm({
   occupiedPositions,
 }: {
   slotId: string;
-  members: Array<{ id: string; name: string; email: string }>;
+  members: Array<{ id: string; name: string; email: string | null }>;
   capacity: number;
   occupiedPositions: number[];
 }) {
@@ -30,7 +30,7 @@ export function AdminAddPlayersForm({
         <select name="ownerId" required defaultValue={members[0]?.id}>
           {members.map((m) => (
             <option key={m.id} value={m.id}>
-              {m.name} ({m.email})
+              {m.name} ({m.email || "no email"})
             </option>
           ))}
         </select>

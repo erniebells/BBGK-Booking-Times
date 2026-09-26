@@ -41,7 +41,7 @@ export default async function AccountStatusPage() {
         </div>
         <div>
           <dt className="text-emerald-950/55">Email</dt>
-          <dd>{user.email}</dd>
+          <dd>{user.email || "—"}</dd>
         </div>
         <div>
           <dt className="text-emerald-950/55">Role</dt>
@@ -52,7 +52,7 @@ export default async function AccountStatusPage() {
           <dd>{statusCopy}</dd>
         </div>
       </dl>
-      {!user.emailVerifiedAt && user.role === "GUEST" && (
+      {!user.emailVerifiedAt && user.role === "GUEST" && user.email && (
         <Link href={`/verify?email=${encodeURIComponent(user.email)}`} className="btn w-fit">
           Verify email
         </Link>

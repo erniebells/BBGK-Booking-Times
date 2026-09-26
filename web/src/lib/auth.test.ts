@@ -121,7 +121,7 @@ describe("Member Authentication", () => {
   });
 
   it("should authenticate admin with email", async () => {
-    const admin = await prisma.user.findUnique({
+    const admin = await prisma.user.findFirst({
       where: { email: "admin@test.com" },
     });
 

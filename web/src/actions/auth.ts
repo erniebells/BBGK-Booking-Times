@@ -43,7 +43,13 @@ export async function registerGuest(
     return { ok: false, error: `Too many attempts. Try again in ${rl.retryAfterSec}s.` };
   }
 
-  const existing = await prisma.user.findUnique({ where: { email } });
+  // Check if email already exists for admin or guest (members can share emails)
+  const existing = await prisma.user.findFirst({ 
+    where: { 
+      email,
+      role: { in: [Role.ADMIN, Role.GUEST] }
+    } 
+  });
   if (existing) {
     return { ok: false, error: "An account with that email already exists." };
   }
@@ -105,7 +111,13 @@ export async function verifyEmail(
     return { ok: false, error: `Too many attempts. Try again in ${rl.retryAfterSec}s.` };
   }
 
-  const user = await prisma.user.findUnique({ where: { email } });
+  // Look up guest by email (guests can't share emails)
+  const user = await prisma.user.findFirst({ 
+    where: { 
+      email,
+      role: Role.GUEST 
+    } 
+  });
   if (!user) return { ok: false, error: "Account not found." };
   if (user.emailVerifiedAt) {
     return { ok: true, message: "Email already verified." };
@@ -158,7 +170,13 @@ export async function resendVerification(
     return { ok: false, error: `Too many attempts. Try again in ${rl.retryAfterSec}s.` };
   }
 
-  const user = await prisma.user.findUnique({ where: { email } });
+  // Look up guest by email (guests can't share emails)
+  const user = await prisma.user.findFirst({ 
+    where: { 
+      email,
+      role: Role.GUEST 
+    } 
+  });
   if (!user) return { ok: false, error: "Account not found." };
   if (user.emailVerifiedAt) return { ok: true, message: "Already verified." };
 
