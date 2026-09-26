@@ -107,7 +107,7 @@ model TeeSlot {
   dayId     String
   startsAt  DateTime
   capacity  Int      @default(4)
-  teeNumber Int?
+  teeNumber Int      @default(1)
   createdAt DateTime @default(now())
 
   day    PlayingDay     @relation(fields: [dayId], references: [id], onDelete: Cascade)

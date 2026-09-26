@@ -132,7 +132,7 @@ export async function createPlayingDay(
     slotsData = times.map((t) => ({
       startsAt: combineDateAndTimeUtc(date, t, settings.timezone),
       capacity: 4,
-      teeNumber: null,
+      teeNumber: 1,
     }));
   }
 
