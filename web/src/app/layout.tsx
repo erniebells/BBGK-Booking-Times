@@ -14,8 +14,8 @@ const sans = Source_Sans_3({
 });
 
 export const metadata: Metadata = {
-  title: "Demo Golf Club — Tee times",
-  description: "Book fourball tee times at Demo Golf Club",
+  title: "Boggoms Bay Golf Club — Tee times",
+  description: "Book fourball tee times at Boggoms Bay Golf Club",
 };
 
 export default function RootLayout({

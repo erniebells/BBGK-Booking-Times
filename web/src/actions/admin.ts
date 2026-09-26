@@ -2,26 +2,35 @@
 
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
-import { AccountStatus, PlayingDayStatus, PlayingDayType, Role } from "@prisma/client";
+import { AccountStatus, PlayingDayStatus, PlayingDayType, PlayingDayFormat, Role } from "@prisma/client";
 import { requireAdmin } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { writeAudit } from "@/lib/audit";
+import { hash } from "bcryptjs";
 import {
   combineDateAndTimeUtc,
   generateSlotTimes,
+  generateShotgunSlots,
 } from "@/lib/slots";
 import { getClubSettings } from "@/lib/club";
 import { BookingError, cancelBooking, createBooking } from "@/lib/booking";
+import {
+  parseDotGolfCsv,
+  normalizeMemberName,
+  hashMemberCredentials,
+  type MemberImportResult,
+} from "@/lib/member";
 import type { ActionResult } from "./auth";
 
 const daySchema = z.object({
   title: z.string().min(2).max(120),
   date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
   type: z.enum(["NORMAL", "TOURNAMENT"]),
+  format: z.enum(["NORMAL", "SHOTGUN"]).default("NORMAL"),
   formatLabel: z.string().max(80).optional(),
   notes: z.string().max(2000).optional(),
   firstTeeTime: z.string(),
-  lastTeeTime: z.string(),
+  lastTeeTime: z.string().optional(),
   intervalMinutes: z.coerce.number().int().min(1).max(60).default(10),
 });
 
@@ -33,22 +42,32 @@ export async function previewSlots(formData: FormData): Promise<
     title: formData.get("title") || "Preview",
     date: formData.get("date"),
     type: formData.get("type") || "NORMAL",
+    format: formData.get("format") || "NORMAL",
     formatLabel: formData.get("formatLabel") || undefined,
     notes: formData.get("notes") || undefined,
     firstTeeTime: formData.get("firstTeeTime"),
-    lastTeeTime: formData.get("lastTeeTime"),
+    lastTeeTime: formData.get("lastTeeTime") || undefined,
     intervalMinutes: formData.get("intervalMinutes") || 10,
   });
   if (!parsed.success) {
     return { ok: false, error: "Invalid day details." };
   }
   try {
-    const times = generateSlotTimes(
-      parsed.data.firstTeeTime,
-      parsed.data.lastTeeTime,
-      parsed.data.intervalMinutes,
-    );
-    return { ok: true, times };
+    if (parsed.data.format === "SHOTGUN") {
+      const shotgunSlots = generateShotgunSlots(parsed.data.firstTeeTime);
+      const times = shotgunSlots.map(s => `${s.startTime} (Tee ${s.teeNumber})`);
+      return { ok: true, times };
+    } else {
+      if (!parsed.data.lastTeeTime) {
+        return { ok: false, error: "Last tee time required for normal format." };
+      }
+      const times = generateSlotTimes(
+        parsed.data.firstTeeTime,
+        parsed.data.lastTeeTime,
+        parsed.data.intervalMinutes,
+      );
+      return { ok: true, times };
+    }
   } catch (e) {
     return {
       ok: false,
@@ -66,49 +85,71 @@ export async function createPlayingDay(
     title: formData.get("title"),
     date: formData.get("date"),
     type: formData.get("type") || "NORMAL",
+    format: formData.get("format") || "NORMAL",
     formatLabel: formData.get("formatLabel") || undefined,
     notes: formData.get("notes") || undefined,
     firstTeeTime: formData.get("firstTeeTime"),
-    lastTeeTime: formData.get("lastTeeTime"),
+    lastTeeTime: formData.get("lastTeeTime") || undefined,
     intervalMinutes: formData.get("intervalMinutes") || 10,
   });
   if (!parsed.success) {
     return { ok: false, error: "Invalid day details." };
   }
 
-  let times: string[];
-  try {
-    times = generateSlotTimes(
-      parsed.data.firstTeeTime,
-      parsed.data.lastTeeTime,
-      parsed.data.intervalMinutes,
-    );
-  } catch (e) {
-    return {
-      ok: false,
-      error: e instanceof Error ? e.message : "Invalid tee times.",
-    };
-  }
-
   const settings = await getClubSettings();
   const date = new Date(`${parsed.data.date}T00:00:00.000Z`);
+
+  // Generate slots based on format
+  let slotsData;
+  let slotCount;
+  if (parsed.data.format === "SHOTGUN") {
+    const shotgunSlots = generateShotgunSlots(parsed.data.firstTeeTime);
+    slotCount = shotgunSlots.length;
+    slotsData = shotgunSlots.map((slot) => ({
+      startsAt: combineDateAndTimeUtc(date, slot.startTime, settings.timezone),
+      capacity: 4,
+      teeNumber: slot.teeNumber,
+    }));
+  } else {
+    // NORMAL format
+    if (!parsed.data.lastTeeTime) {
+      return { ok: false, error: "Last tee time required for normal format." };
+    }
+    let times: string[];
+    try {
+      times = generateSlotTimes(
+        parsed.data.firstTeeTime,
+        parsed.data.lastTeeTime,
+        parsed.data.intervalMinutes,
+      );
+    } catch (e) {
+      return {
+        ok: false,
+        error: e instanceof Error ? e.message : "Invalid tee times.",
+      };
+    }
+    slotCount = times.length;
+    slotsData = times.map((t) => ({
+      startsAt: combineDateAndTimeUtc(date, t, settings.timezone),
+      capacity: 4,
+      teeNumber: 1,
+    }));
+  }
 
   const day = await prisma.playingDay.create({
     data: {
       title: parsed.data.title,
       date,
       type: parsed.data.type as PlayingDayType,
+      format: parsed.data.format as PlayingDayFormat,
       formatLabel: parsed.data.formatLabel || null,
       notes: parsed.data.notes || null,
       firstTeeTime: parsed.data.firstTeeTime,
-      lastTeeTime: parsed.data.lastTeeTime,
+      lastTeeTime: parsed.data.lastTeeTime || parsed.data.firstTeeTime,
       intervalMinutes: parsed.data.intervalMinutes,
       status: PlayingDayStatus.DRAFT,
       slots: {
-        create: times.map((t) => ({
-          startsAt: combineDateAndTimeUtc(date, t, settings.timezone),
-          capacity: 4,
-        })),
+        create: slotsData,
       },
     },
   });
@@ -118,7 +159,7 @@ export async function createPlayingDay(
     action: "playing_day.create",
     entityType: "PlayingDay",
     entityId: day.id,
-    metadata: { title: day.title, slots: times.length },
+    metadata: { title: day.title, slots: slotCount },
   });
 
   revalidatePath("/admin");
@@ -189,12 +230,15 @@ export async function adminAddPlayers(
   const session = await requireAdmin();
   const slotId = String(formData.get("slotId") ?? "");
   const ownerId = String(formData.get("ownerId") ?? session.user.id);
-  const names = [
-    String(formData.get("player1") ?? ""),
-    String(formData.get("player2") ?? ""),
-    String(formData.get("player3") ?? ""),
-    String(formData.get("player4") ?? ""),
-  ].filter((n) => n.trim());
+  
+  // Collect all player fields (player1, player2, player3, player4)
+  const names: string[] = [];
+  for (let i = 1; i <= 4; i++) {
+    const name = String(formData.get(`player${i}`) ?? "").trim();
+    if (name) {
+      names.push(name);
+    }
+  }
 
   try {
     await createBooking({
@@ -319,4 +363,282 @@ export async function updatePlayingDayTimes(
 
   revalidatePath("/admin");
   return { ok: true, message: "Tee sheet regenerated." };
+}
+
+export async function importMembersFromCsv(
+  _prev: ActionResult | null,
+  formData: FormData,
+): Promise<ActionResult & { result?: MemberImportResult }> {
+  const session = await requireAdmin();
+  
+  const file = formData.get("file") as File | null;
+  if (!file) {
+    return { ok: false, error: "No file uploaded." };
+  }
+
+  let csvContent: string;
+  try {
+    csvContent = await file.text();
+  } catch {
+    return { ok: false, error: "Could not read file." };
+  }
+
+  let members;
+  try {
+    members = parseDotGolfCsv(csvContent);
+  } catch (e) {
+    return {
+      ok: false,
+      error: e instanceof Error ? e.message : "Invalid CSV format.",
+    };
+  }
+
+  const result: MemberImportResult = {
+    created: 0,
+    updated: 0,
+    disabled: 0,
+    skipped: 0,
+    resignedNotImported: 0,
+    conflicts: [],
+  };
+
+  // Track normalized names ONLY for Active members to detect duplicates
+  const normalizedNames = new Map<string, string[]>();
+  
+  for (const member of members) {
+    if (member.status === "Active") {
+      const normalized = normalizeMemberName(member.name);
+      if (!normalizedNames.has(normalized)) {
+        normalizedNames.set(normalized, []);
+      }
+      normalizedNames.get(normalized)!.push(member.name);
+    }
+  }
+
+  // Process each member - wrap in try-catch to prevent page crash
+  for (const member of members) {
+    try {
+      // Skip rows with blank or short STATUS field
+      if (!member.status || member.status.trim().length < 3) {
+        result.conflicts.push(
+          `Row "${member.name}" (${member.membershipNumber}): blank or invalid STATUS - skipped`
+        );
+        result.skipped++;
+        continue;
+      }
+
+      const membershipNumber = member.membershipNumber.trim();
+      const normalizedName = normalizeMemberName(member.name);
+      const email = member.email.trim().toLowerCase() || `member${membershipNumber}@placeholder.local`;
+
+      // Check if membership number already exists
+      const existing = await prisma.user.findUnique({
+        where: { membershipNumber },
+      });
+
+      if (member.status === "Active") {
+        // Create or update active member
+        const { emailHash, numberHash } = await hashMemberCredentials(
+          member.email || "",
+          membershipNumber,
+        );
+
+        // Warn about duplicate names but still import
+        const duplicates = normalizedNames.get(normalizedName) || [];
+        if (duplicates.length > 1) {
+          result.conflicts.push(
+            `⚠ Duplicate name: "${member.name}" (${membershipNumber}) - imported but shares name with ${duplicates.length - 1} other(s)`
+          );
+        }
+
+        if (existing) {
+          // Update existing member
+          await prisma.user.update({
+            where: { membershipNumber },
+            data: {
+              name: member.name,
+              normalizedName,
+              email,
+              emailPasswordHash: emailHash,
+              membershipNumberPasswordHash: numberHash,
+              status: AccountStatus.ACTIVE,
+              phone: member.mobile || member.homePhone || null,
+            },
+          });
+          result.updated++;
+        } else {
+          // Check if name matches existing member (warning only, still import)
+          const nameConflict = await prisma.user.findFirst({
+            where: {
+              normalizedName,
+              role: "MEMBER",
+            },
+          });
+
+          if (nameConflict) {
+            result.conflicts.push(
+              `⚠ Name matches existing member: "${member.name}" (${membershipNumber}) matches ${nameConflict.name} (${nameConflict.membershipNumber || 'no number'}) - imported`
+            );
+          }
+
+          // Create new member - use membership number as initial password hash
+          await prisma.user.create({
+            data: {
+              name: member.name,
+              normalizedName,
+              email,
+              membershipNumber,
+              passwordHash: numberHash,
+              emailPasswordHash: emailHash,
+              membershipNumberPasswordHash: numberHash,
+              role: Role.MEMBER,
+              status: AccountStatus.ACTIVE,
+              emailVerifiedAt: new Date(),
+              phone: member.mobile || member.homePhone || null,
+            },
+          });
+          result.created++;
+        }
+      } else if (member.status === "Resigned" && existing) {
+        // Disable resigned members who were previously imported
+        await prisma.user.update({
+          where: { membershipNumber },
+          data: { status: AccountStatus.DISABLED },
+        });
+        result.disabled++;
+      } else if (member.status === "Resigned" && !existing) {
+        // Resigned member not in DB - don't import
+        result.resignedNotImported++;
+      } else {
+        // Other status
+        result.skipped++;
+      }
+    } catch (e) {
+      // Catch any errors for this row and continue processing
+      const errorMsg = e instanceof Error ? e.message : "Unknown error";
+      result.conflicts.push(
+        `❌ Row "${member.name}" (${member.membershipNumber}): ${errorMsg} - skipped`
+      );
+      result.skipped++;
+      continue;
+    }
+  }
+
+  // Log the import
+  await prisma.memberImportLog.create({
+    data: {
+      filename: file.name,
+      importedBy: session.user.id,
+      created: result.created,
+      updated: result.updated,
+      disabled: result.disabled,
+      skipped: result.skipped,
+      conflicts: result.conflicts.length > 0 ? JSON.stringify(result.conflicts) : null,
+    },
+  });
+
+  await writeAudit({
+    actorId: session.user.id,
+    action: "member.import",
+    entityType: "User",
+    metadata: {
+      created: result.created,
+      updated: result.updated,
+      disabled: result.disabled,
+      skipped: result.skipped,
+      conflicts: result.conflicts.length,
+    },
+  });
+
+  revalidatePath("/admin/members");
+  
+  const summary = [
+    `${result.created} created`,
+    `${result.updated} updated`,
+    `${result.disabled} disabled`,
+    result.resignedNotImported > 0 ? `${result.resignedNotImported} resigned (not imported)` : null,
+    result.skipped > 0 ? `${result.skipped} skipped` : null,
+  ].filter(Boolean).join(", ");
+  
+  return {
+    ok: true,
+    message: `Import complete: ${summary}${result.conflicts.length > 0 ? `. See details below.` : ""}`,
+    result,
+  };
+}
+
+export async function updateMemberDetails(
+  memberId: string,
+  updates: { name?: string; email?: string; status?: AccountStatus },
+): Promise<ActionResult> {
+  const session = await requireAdmin();
+  
+  const member = await prisma.user.findUnique({
+    where: { id: memberId },
+  });
+
+  if (!member || member.role !== "MEMBER") {
+    return { ok: false, error: "Member not found." };
+  }
+
+  const data: {
+    name?: string;
+    normalizedName?: string;
+    email?: string;
+    emailPasswordHash?: string;
+    status?: AccountStatus;
+  } = {};
+  
+  if (updates.name && updates.name !== member.name) {
+    const normalizedName = normalizeMemberName(updates.name);
+    
+    // Check for duplicate normalized name
+    const conflict = await prisma.user.findFirst({
+      where: {
+        normalizedName,
+        role: "MEMBER",
+        id: { not: memberId },
+      },
+    });
+
+    if (conflict) {
+      return {
+        ok: false,
+        error: `Name "${updates.name}" conflicts with existing member: ${conflict.name}`,
+      };
+    }
+
+    data.name = updates.name;
+    data.normalizedName = normalizedName;
+  }
+
+  if (updates.email && updates.email !== member.email) {
+    data.email = updates.email.toLowerCase().trim();
+    
+    // Update email password hash
+    if (member.membershipNumber && updates.email) {
+      const emailHash = await hash(updates.email.toLowerCase().trim(), 12);
+      data.emailPasswordHash = emailHash;
+    }
+  }
+
+  if (updates.status) {
+    data.status = updates.status;
+  }
+
+  await prisma.user.update({
+    where: { id: memberId },
+    data,
+  });
+
+  await writeAudit({
+    actorId: session.user.id,
+    action: "member.update",
+    entityType: "User",
+    entityId: memberId,
+    metadata: updates,
+  });
+
+  revalidatePath("/admin/members");
+  return { ok: true, message: "Member updated." };
 }

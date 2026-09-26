@@ -3,11 +3,14 @@
 import { hash } from "bcryptjs";
 import { AuthError } from "next-auth";
 import { z } from "zod";
+import { headers } from "next/headers";
 import { prisma } from "@/lib/prisma";
 import { signIn, signOut } from "@/lib/auth";
-import { consumeRateLimit } from "@/lib/rate-limit";
+import { consumeRateLimit, consumeMultipleRateLimits } from "@/lib/rate-limit";
 import { generateOtpCode, hashOtp, sendVerificationEmail } from "@/lib/email";
 import { writeAudit } from "@/lib/audit";
+import { normalizeMemberName } from "@/lib/member";
+import { getClientIp } from "@/lib/client-ip";
 import { AccountStatus, Role } from "@prisma/client";
 import { redirect } from "next/navigation";
 
@@ -40,7 +43,13 @@ export async function registerGuest(
     return { ok: false, error: `Too many attempts. Try again in ${rl.retryAfterSec}s.` };
   }
 
-  const existing = await prisma.user.findUnique({ where: { email } });
+  // Check if email already exists for admin or guest (members can share emails)
+  const existing = await prisma.user.findFirst({ 
+    where: { 
+      email,
+      role: { in: [Role.ADMIN, Role.GUEST] }
+    } 
+  });
   if (existing) {
     return { ok: false, error: "An account with that email already exists." };
   }
@@ -102,7 +111,13 @@ export async function verifyEmail(
     return { ok: false, error: `Too many attempts. Try again in ${rl.retryAfterSec}s.` };
   }
 
-  const user = await prisma.user.findUnique({ where: { email } });
+  // Look up guest by email (guests can't share emails)
+  const user = await prisma.user.findFirst({ 
+    where: { 
+      email,
+      role: Role.GUEST 
+    } 
+  });
   if (!user) return { ok: false, error: "Account not found." };
   if (user.emailVerifiedAt) {
     return { ok: true, message: "Email already verified." };
@@ -155,7 +170,13 @@ export async function resendVerification(
     return { ok: false, error: `Too many attempts. Try again in ${rl.retryAfterSec}s.` };
   }
 
-  const user = await prisma.user.findUnique({ where: { email } });
+  // Look up guest by email (guests can't share emails)
+  const user = await prisma.user.findFirst({ 
+    where: { 
+      email,
+      role: Role.GUEST 
+    } 
+  });
   if (!user) return { ok: false, error: "Account not found." };
   if (user.emailVerifiedAt) return { ok: true, message: "Already verified." };
 
@@ -182,25 +203,46 @@ export async function loginAction(
   _prev: ActionResult | null,
   formData: FormData,
 ): Promise<ActionResult> {
-  const email = String(formData.get("email") ?? "")
-    .toLowerCase()
+  const identifier = String(formData.get("identifier") ?? "")
     .trim();
   const password = String(formData.get("password") ?? "");
 
-  const rl = await consumeRateLimit(`login:${email || "unknown"}`, 20, 15 * 60 * 1000);
-  if (!rl.ok) {
-    return { ok: false, error: `Too many attempts. Try again in ${rl.retryAfterSec}s.` };
+  // Apply rate limiting based on identifier (email or normalized name) AND IP
+  const normalizedKey = identifier.includes("@")
+    ? identifier.toLowerCase()
+    : normalizeMemberName(identifier);
+  
+  // Get client IP for rate limiting
+  const headersList = await headers();
+  const ip = getClientIp(headersList);
+  
+  if (ip) {
+    // Rate limit by both identifier and IP
+    const keys = [
+      `login:${normalizedKey || "unknown"}`,
+      `login-ip:${ip}`,
+    ];
+    const rl = await consumeMultipleRateLimits(keys, 20, 15 * 60 * 1000);
+    if (!rl.ok) {
+      return { ok: false, error: `Too many attempts. Try again in ${rl.retryAfterSec}s.` };
+    }
+  } else {
+    // No reliable IP - only limit by identifier
+    const rl = await consumeRateLimit(`login:${normalizedKey || "unknown"}`, 20, 15 * 60 * 1000);
+    if (!rl.ok) {
+      return { ok: false, error: `Too many attempts. Try again in ${rl.retryAfterSec}s.` };
+    }
   }
 
   try {
     await signIn("credentials", {
-      email,
+      identifier,
       password,
       redirectTo: "/",
     });
   } catch (e) {
     if (e instanceof AuthError) {
-      return { ok: false, error: "Invalid email or password." };
+      return { ok: false, error: "Invalid credentials." };
     }
     throw e;
   }

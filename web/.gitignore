@@ -47,3 +47,9 @@ next-env.d.ts
 *.db
 *.db-journal
 prisma/dev.db*
+
+# uploads and CSV exports (but keep samples)
+*.csv
+!samples/**/*.csv
+uploads/
+/public/uploads/

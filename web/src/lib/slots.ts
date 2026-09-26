@@ -134,3 +134,53 @@ export function formatClubDate(date: Date, timeZone = CLUB_TZ): string {
     dateStyle: "full",
   }).format(date);
 }
+
+/**
+ * Shotgun slot with tee number and turn time
+ */
+export interface ShotgunSlot {
+  teeNumber: number;
+  startTime: string;
+  turnTime: string;
+}
+
+/**
+ * Generate shotgun groups for 9-hole course
+ * - 9 tees (Tee 1 to Tee 9)
+ * - At start time: one group per tee (9 groups)
+ * - At start + 10 min: one group per tee (9 groups)
+ * - At start + 20 min: one group on Tee 1 only (1 group)
+ * - Total: 19 groups (76 players max)
+ * - Turn time = start + 135 minutes ("after 9")
+ */
+export function generateShotgunSlots(startTime: string): ShotgunSlot[] {
+  const startMinutes = parseTimeToMinutes(startTime);
+  const slots: ShotgunSlot[] = [];
+
+  // First wave: all 9 tees at start time
+  for (let tee = 1; tee <= 9; tee++) {
+    slots.push({
+      teeNumber: tee,
+      startTime: minutesToTime(startMinutes),
+      turnTime: minutesToTime(startMinutes + 135),
+    });
+  }
+
+  // Second wave: all 9 tees at start + 10 min
+  for (let tee = 1; tee <= 9; tee++) {
+    slots.push({
+      teeNumber: tee,
+      startTime: minutesToTime(startMinutes + 10),
+      turnTime: minutesToTime(startMinutes + 10 + 135),
+    });
+  }
+
+  // Third wave: Tee 1 only at start + 20 min
+  slots.push({
+    teeNumber: 1,
+    startTime: minutesToTime(startMinutes + 20),
+    turnTime: minutesToTime(startMinutes + 20 + 135),
+  });
+
+  return slots;
+}

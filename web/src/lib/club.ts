@@ -6,7 +6,7 @@ export async function getClubSettings() {
     settings = await prisma.clubSettings.create({
       data: {
         id: 1,
-        clubName: "Demo Golf Club",
+        clubName: "Boggoms Bay Golf Club",
         timezone: "Africa/Johannesburg",
         bookingWindowDays: 7,
         cancellationLeadHours: 24,

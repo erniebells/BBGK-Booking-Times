@@ -27,6 +27,9 @@ export default async function AdminHomePage() {
         <Link href="/admin/days/new" className="btn">
           New playing day
         </Link>
+        <Link href="/admin/members" className="btn btn-secondary">
+          Members
+        </Link>
         <Link href="/admin/guests" className="btn btn-secondary">
           Guest queue ({pendingGuests})
         </Link>

@@ -3,7 +3,7 @@ generator client {
 }
 
 datasource db {
-  provider = "sqlite"
+  provider = "postgresql"
   url      = env("DATABASE_URL")
 }
 
@@ -25,6 +25,11 @@ enum PlayingDayType {
   TOURNAMENT
 }
 
+enum PlayingDayFormat {
+  NORMAL
+  SHOTGUN
+}
+
 enum PlayingDayStatus {
   DRAFT
   PUBLISHED
@@ -33,43 +38,66 @@ enum PlayingDayStatus {
 }
 
 model User {
-  id              String        @id @default(cuid())
-  email           String        @unique
-  phone           String?
-  name            String
-  passwordHash    String
-  role            Role
-  status          AccountStatus @default(PENDING_APPROVAL)
-  emailVerifiedAt DateTime?
-  createdAt       DateTime      @default(now())
-  updatedAt       DateTime      @updatedAt
+  id                          String        @id @default(cuid())
+  email                       String?
+  phone                       String?
+  name                        String
+  normalizedName              String?
+  membershipNumber            String?       @unique
+  passwordHash                String
+  emailPasswordHash           String?
+  membershipNumberPasswordHash String?
+  role                        Role
+  status                      AccountStatus @default(PENDING_APPROVAL)
+  emailVerifiedAt             DateTime?
+  createdAt                   DateTime      @default(now())
+  updatedAt                   DateTime      @updatedAt
 
   bookings           Booking[]
   auditLogs          AuditLog[]          @relation("AuditActor")
   verificationTokens VerificationToken[]
+
+  @@index([normalizedName])
+  @@index([membershipNumber])
+  @@index([email, role])
 }
 
 model ClubSettings {
   id                    Int    @id @default(1)
-  clubName              String @default("Demo Golf Club")
+  clubName              String @default("Boggoms Bay Golf Club")
   timezone              String @default("Africa/Johannesburg")
   bookingWindowDays     Int    @default(7)
   cancellationLeadHours Int    @default(24)
 }
 
+model MemberImportLog {
+  id          String   @id @default(cuid())
+  filename    String
+  importedBy  String
+  created     Int      @default(0)
+  updated     Int      @default(0)
+  disabled    Int      @default(0)
+  skipped     Int      @default(0)
+  conflicts   String?
+  createdAt   DateTime @default(now())
+
+  @@index([createdAt])
+}
+
 model PlayingDay {
-  id              String           @id @default(cuid())
+  id              String             @id @default(cuid())
   title           String
   date            DateTime
-  type            PlayingDayType   @default(NORMAL)
+  type            PlayingDayType     @default(NORMAL)
+  format          PlayingDayFormat   @default(NORMAL)
   formatLabel     String?
   notes           String?
   firstTeeTime    String
   lastTeeTime     String
-  intervalMinutes Int              @default(10)
-  status          PlayingDayStatus @default(DRAFT)
-  createdAt       DateTime         @default(now())
-  updatedAt       DateTime         @updatedAt
+  intervalMinutes Int                @default(10)
+  status          PlayingDayStatus   @default(DRAFT)
+  createdAt       DateTime           @default(now())
+  updatedAt       DateTime           @updatedAt
 
   slots TeeSlot[]
 }
@@ -79,13 +107,15 @@ model TeeSlot {
   dayId     String
   startsAt  DateTime
   capacity  Int      @default(4)
+  teeNumber Int      @default(1)
   createdAt DateTime @default(now())
 
   day    PlayingDay     @relation(fields: [dayId], references: [id], onDelete: Cascade)
   places BookingPlace[]
 
-  @@unique([dayId, startsAt])
+  @@unique([dayId, startsAt, teeNumber])
   @@index([startsAt])
+  @@index([teeNumber])
 }
 
 model Booking {
