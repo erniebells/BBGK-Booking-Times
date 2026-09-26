@@ -42,7 +42,7 @@ const credentialsSchema = z.object({
  * Authenticate a user by email (for admins/guests) or name (for members).
  * Members can use either their email address OR membership number as password.
  */
-async function authenticateUser(identifier: string, password: string) {
+export async function authenticateUser(identifier: string, password: string) {
   const trimmedIdentifier = identifier.trim();
   const trimmedPassword = password.trim();
 
@@ -82,8 +82,30 @@ async function authenticateUser(identifier: string, password: string) {
   });
 
   if (candidates.length === 0) return null;
+  
   if (candidates.length > 1) {
-    // Multiple members with same normalized name - ambiguous login blocked
+    // Multiple members with same normalized name
+    // Try each candidate and see which password matches
+    const matches: typeof candidates = [];
+    
+    for (const candidate of candidates) {
+      // Try email password
+      if (candidate.emailPasswordHash && candidate.email && !candidate.email.endsWith("@placeholder.local")) {
+        const emailValid = await compare(trimmedPassword.toLowerCase(), candidate.emailPasswordHash);
+        if (emailValid) matches.push(candidate);
+      }
+      
+      // Try membership number password
+      if (candidate.membershipNumberPasswordHash) {
+        const numberValid = await compare(trimmedPassword, candidate.membershipNumberPasswordHash);
+        if (numberValid) matches.push(candidate);
+      }
+    }
+    
+    // If exactly one match, allow login
+    if (matches.length === 1) return matches[0];
+    
+    // If 0 or >1 matches, reject (prevents logging into wrong account)
     return null;
   }
 

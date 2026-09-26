@@ -154,6 +154,7 @@ export interface MemberImportResult {
   updated: number;
   disabled: number;
   skipped: number;
+  resignedNotImported: number;
   conflicts: string[];
 }
 

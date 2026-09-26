@@ -1,8 +1,8 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { auth } from "@/lib/auth";
-import { ActionForm } from "@/components/ActionForm";
 import { importMembersFromCsv } from "@/actions/admin";
+import { ImportForm } from "@/components/ImportForm";
 
 export default async function AdminMemberImportPage() {
   const session = await auth();
@@ -19,21 +19,13 @@ export default async function AdminMemberImportPage() {
         <ul className="list-disc list-inside space-y-1 text-emerald-950/70">
           <li>Export &quot;Full Member Listing&quot; from dot.golf</li>
           <li>CSV with semicolon (;) separator, quoted fields</li>
-          <li>Only Active members are imported</li>
+          <li>Active members are imported (duplicates allowed, keyed by membership number)</li>
           <li>Resigned members who were previously imported will be disabled</li>
           <li>Re-running the import is safe (idempotent by membership number)</li>
-          <li>Duplicate names (after normalization) will be flagged as conflicts</li>
+          <li>Members with duplicate names can each log in with their own email or membership number</li>
         </ul>
       </div>
-      <ActionForm action={importMembersFromCsv} className="card-stack">
-        <label>
-          CSV File
-          <input type="file" name="file" accept=".csv,text/csv" required />
-        </label>
-        <button type="submit" className="btn">
-          Import Members
-        </button>
-      </ActionForm>
+      <ImportForm action={importMembersFromCsv} />
     </div>
   );
 }

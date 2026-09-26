@@ -364,18 +364,21 @@ export async function importMembersFromCsv(
     updated: 0,
     disabled: 0,
     skipped: 0,
+    resignedNotImported: 0,
     conflicts: [],
   };
 
-  // Track normalized names to detect duplicates in this import
+  // Track normalized names ONLY for Active members to detect duplicates
   const normalizedNames = new Map<string, string[]>();
   
   for (const member of members) {
-    const normalized = normalizeMemberName(member.name);
-    if (!normalizedNames.has(normalized)) {
-      normalizedNames.set(normalized, []);
+    if (member.status === "Active") {
+      const normalized = normalizeMemberName(member.name);
+      if (!normalizedNames.has(normalized)) {
+        normalizedNames.set(normalized, []);
+      }
+      normalizedNames.get(normalized)!.push(member.name);
     }
-    normalizedNames.get(normalized)!.push(member.name);
   }
 
   // Process each member - wrap in try-catch to prevent page crash
@@ -394,16 +397,6 @@ export async function importMembersFromCsv(
       const normalizedName = normalizeMemberName(member.name);
       const email = member.email.trim().toLowerCase() || `member${membershipNumber}@placeholder.local`;
 
-      // Check for duplicate normalized names
-      const duplicates = normalizedNames.get(normalizedName) || [];
-      if (duplicates.length > 1) {
-        result.conflicts.push(
-          `Duplicate name: "${member.name}" (normalized: "${normalizedName}") - skipped`
-        );
-        result.skipped++;
-        continue;
-      }
-
       // Check if membership number already exists
       const existing = await prisma.user.findUnique({
         where: { membershipNumber },
@@ -415,6 +408,14 @@ export async function importMembersFromCsv(
           member.email || "",
           membershipNumber,
         );
+
+        // Warn about duplicate names but still import
+        const duplicates = normalizedNames.get(normalizedName) || [];
+        if (duplicates.length > 1) {
+          result.conflicts.push(
+            `⚠ Duplicate name: "${member.name}" (${membershipNumber}) - imported but shares name with ${duplicates.length - 1} other(s)`
+          );
+        }
 
         if (existing) {
           // Update existing member
@@ -432,7 +433,7 @@ export async function importMembersFromCsv(
           });
           result.updated++;
         } else {
-          // Check for conflicting normalized name
+          // Check if name matches existing member (warning only, still import)
           const nameConflict = await prisma.user.findFirst({
             where: {
               normalizedName,
@@ -442,10 +443,8 @@ export async function importMembersFromCsv(
 
           if (nameConflict) {
             result.conflicts.push(
-              `Name conflict: "${member.name}" matches existing member ${nameConflict.name} - skipped`
+              `⚠ Name matches existing member: "${member.name}" (${membershipNumber}) matches ${nameConflict.name} (${nameConflict.membershipNumber || 'no number'}) - imported`
             );
-            result.skipped++;
-            continue;
           }
 
           // Create new member - use membership number as initial password hash
@@ -473,15 +472,18 @@ export async function importMembersFromCsv(
           data: { status: AccountStatus.DISABLED },
         });
         result.disabled++;
+      } else if (member.status === "Resigned" && !existing) {
+        // Resigned member not in DB - don't import
+        result.resignedNotImported++;
       } else {
-        // Skip resigned members who don't exist
+        // Other status
         result.skipped++;
       }
     } catch (e) {
       // Catch any errors for this row and continue processing
       const errorMsg = e instanceof Error ? e.message : "Unknown error";
       result.conflicts.push(
-        `Row "${member.name}" (${member.membershipNumber}): ${errorMsg} - skipped`
+        `❌ Row "${member.name}" (${member.membershipNumber}): ${errorMsg} - skipped`
       );
       result.skipped++;
       continue;
@@ -515,9 +517,18 @@ export async function importMembersFromCsv(
   });
 
   revalidatePath("/admin/members");
+  
+  const summary = [
+    `${result.created} created`,
+    `${result.updated} updated`,
+    `${result.disabled} disabled`,
+    result.resignedNotImported > 0 ? `${result.resignedNotImported} resigned (not imported)` : null,
+    result.skipped > 0 ? `${result.skipped} skipped` : null,
+  ].filter(Boolean).join(", ");
+  
   return {
     ok: true,
-    message: `Import complete: ${result.created} created, ${result.updated} updated, ${result.disabled} disabled, ${result.skipped} skipped`,
+    message: `Import complete: ${summary}${result.conflicts.length > 0 ? `. See details below.` : ""}`,
     result,
   };
 }
