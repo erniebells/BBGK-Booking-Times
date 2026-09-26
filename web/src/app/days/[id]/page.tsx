@@ -84,7 +84,8 @@ export default async function DayDetailPage({
                 <BookSlotForm
                   slotId={slot.id}
                   defaultName={session.user.name}
-                  maxPlaces={remaining}
+                  capacity={slot.capacity}
+                  occupiedPositions={slot.places.map(p => p.position)}
                 />
               ) : null}
               {eligibility.ok && full ? (

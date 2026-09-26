@@ -7,11 +7,20 @@ import { FormMessage } from "@/components/ActionForm";
 export function AdminAddPlayersForm({
   slotId,
   members,
+  capacity,
+  occupiedPositions,
 }: {
   slotId: string;
   members: Array<{ id: string; name: string; email: string }>;
+  capacity: number;
+  occupiedPositions: number[];
 }) {
   const [state, action, pending] = useActionState(adminAddPlayers, null);
+  
+  // Calculate available positions
+  const availablePositions = Array.from({ length: capacity }, (_, i) => i + 1)
+    .filter(pos => !occupiedPositions.includes(pos));
+  
   return (
     <form action={action} className="mt-3 grid gap-2 border-t border-emerald-900/10 pt-3">
       <input type="hidden" name="slotId" value={slotId} />
@@ -26,14 +35,12 @@ export function AdminAddPlayersForm({
           ))}
         </select>
       </label>
-      <label className="text-sm">
-        Player 1
-        <input name="player1" required />
-      </label>
-      <label className="text-sm">
-        Player 2
-        <input name="player2" />
-      </label>
+      {availablePositions.map((position) => (
+        <label key={position} className="text-sm">
+          Player {position}
+          <input name={`player${position}`} required={position === availablePositions[0]} />
+        </label>
+      ))}
       <button type="submit" className="btn w-fit" disabled={pending}>
         Add players
       </button>

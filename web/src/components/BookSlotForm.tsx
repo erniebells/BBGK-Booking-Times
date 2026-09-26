@@ -7,13 +7,21 @@ import { FormMessage } from "@/components/ActionForm";
 export function BookSlotForm({
   slotId,
   defaultName,
-  maxPlaces,
+  capacity,
+  occupiedPositions,
 }: {
   slotId: string;
   defaultName: string;
-  maxPlaces: number;
+  capacity: number;
+  occupiedPositions: number[];
 }) {
   const [state, action, pending] = useActionState(bookTeeTime, null);
+  
+  // Calculate available positions
+  const availablePositions = Array.from({ length: capacity }, (_, i) => i + 1)
+    .filter(pos => !occupiedPositions.includes(pos));
+  
+  const maxPlaces = availablePositions.length;
 
   return (
     <form action={action} className="mt-3 grid gap-2 border-t border-emerald-900/10 pt-3">
@@ -28,13 +36,13 @@ export function BookSlotForm({
       <p className="text-xs font-semibold uppercase tracking-wide text-emerald-900/50">
         Book up to {maxPlaces} place(s)
       </p>
-      {Array.from({ length: Math.min(4, maxPlaces) }, (_, i) => (
-        <label key={i} className="text-sm font-medium">
-          Player {i + 1}
+      {availablePositions.map((position, index) => (
+        <label key={position} className="text-sm font-medium">
+          Player {position}
           <input
-            name={`player${i + 1}`}
-            defaultValue={i === 0 ? defaultName : ""}
-            required={i === 0}
+            name={`player${position}`}
+            defaultValue={index === 0 ? defaultName : ""}
+            required={index === 0}
           />
         </label>
       ))}

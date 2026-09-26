@@ -196,12 +196,15 @@ export async function adminAddPlayers(
   const session = await requireAdmin();
   const slotId = String(formData.get("slotId") ?? "");
   const ownerId = String(formData.get("ownerId") ?? session.user.id);
-  const names = [
-    String(formData.get("player1") ?? ""),
-    String(formData.get("player2") ?? ""),
-    String(formData.get("player3") ?? ""),
-    String(formData.get("player4") ?? ""),
-  ].filter((n) => n.trim());
+  
+  // Collect all player fields (player1, player2, player3, player4)
+  const names: string[] = [];
+  for (let i = 1; i <= 4; i++) {
+    const name = String(formData.get(`player${i}`) ?? "").trim();
+    if (name) {
+      names.push(name);
+    }
+  }
 
   try {
     await createBooking({

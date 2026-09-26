@@ -146,7 +146,12 @@ export default async function AdminDayPage({
               })}
             </ol>
             {slot.places.length < slot.capacity && (
-              <AdminAddPlayersForm slotId={slot.id} members={members} />
+              <AdminAddPlayersForm 
+                slotId={slot.id} 
+                members={members}
+                capacity={slot.capacity}
+                occupiedPositions={slot.places.map(p => p.position)}
+              />
             )}
           </li>
         ))}
