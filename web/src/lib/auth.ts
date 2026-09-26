@@ -49,11 +49,16 @@ async function authenticateUser(identifier: string, password: string) {
   // Email-based login: ONLY for admins and guests (not members)
   if (trimmedIdentifier.includes("@")) {
     const email = trimmedIdentifier.toLowerCase();
-    const user = await prisma.user.findUnique({ where: { email } });
+    const user = await prisma.user.findFirst({ 
+      where: { 
+        email, 
+        role: { in: ["ADMIN", "GUEST"] }
+      } 
+    });
     
     // Only allow email login for ADMIN and GUEST roles
     // Members must login with their name
-    if (user && (user.role === "ADMIN" || user.role === "GUEST")) {
+    if (user) {
       if (user.passwordHash) {
         const valid = await compare(trimmedPassword, user.passwordHash);
         if (valid && user.status !== "DISABLED") {
@@ -186,12 +191,23 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
   logger: {
     error(error) {
       // Don't log full stack traces for ordinary failed login attempts
-      if (error.name === "CredentialsSignin") {
+      if (error.name === "CredentialsSignin" || 
+          error instanceof Error && error.message.includes("CredentialsSignin")) {
         // Silently ignore - expected for wrong passwords
         return;
       }
       // Log other errors normally
       console.error("NextAuth error:", error);
+    },
+    warn(message) {
+      // Also suppress warnings about credential signin
+      if (typeof message === "string" && message.includes("CredentialsSignin")) {
+        return;
+      }
+      console.warn("NextAuth warn:", message);
+    },
+    debug() {
+      // Suppress debug logs in production
     },
   },
 });

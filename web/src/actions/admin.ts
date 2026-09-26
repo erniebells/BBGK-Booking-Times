@@ -378,94 +378,113 @@ export async function importMembersFromCsv(
     normalizedNames.get(normalized)!.push(member.name);
   }
 
-  // Process each member
+  // Process each member - wrap in try-catch to prevent page crash
   for (const member of members) {
-    const membershipNumber = member.membershipNumber.trim();
-    const normalizedName = normalizeMemberName(member.name);
-    const email = member.email.trim().toLowerCase() || `member${membershipNumber}@placeholder.local`;
+    try {
+      // Skip rows with blank or short STATUS field
+      if (!member.status || member.status.trim().length < 3) {
+        result.conflicts.push(
+          `Row "${member.name}" (${member.membershipNumber}): blank or invalid STATUS - skipped`
+        );
+        result.skipped++;
+        continue;
+      }
 
-    // Check for duplicate normalized names
-    const duplicates = normalizedNames.get(normalizedName) || [];
-    if (duplicates.length > 1) {
+      const membershipNumber = member.membershipNumber.trim();
+      const normalizedName = normalizeMemberName(member.name);
+      const email = member.email.trim().toLowerCase() || `member${membershipNumber}@placeholder.local`;
+
+      // Check for duplicate normalized names
+      const duplicates = normalizedNames.get(normalizedName) || [];
+      if (duplicates.length > 1) {
+        result.conflicts.push(
+          `Duplicate name: "${member.name}" (normalized: "${normalizedName}") - skipped`
+        );
+        result.skipped++;
+        continue;
+      }
+
+      // Check if membership number already exists
+      const existing = await prisma.user.findUnique({
+        where: { membershipNumber },
+      });
+
+      if (member.status === "Active") {
+        // Create or update active member
+        const { emailHash, numberHash } = await hashMemberCredentials(
+          member.email || "",
+          membershipNumber,
+        );
+
+        if (existing) {
+          // Update existing member
+          await prisma.user.update({
+            where: { membershipNumber },
+            data: {
+              name: member.name,
+              normalizedName,
+              email,
+              emailPasswordHash: emailHash,
+              membershipNumberPasswordHash: numberHash,
+              status: AccountStatus.ACTIVE,
+              phone: member.mobile || member.homePhone || null,
+            },
+          });
+          result.updated++;
+        } else {
+          // Check for conflicting normalized name
+          const nameConflict = await prisma.user.findFirst({
+            where: {
+              normalizedName,
+              role: "MEMBER",
+            },
+          });
+
+          if (nameConflict) {
+            result.conflicts.push(
+              `Name conflict: "${member.name}" matches existing member ${nameConflict.name} - skipped`
+            );
+            result.skipped++;
+            continue;
+          }
+
+          // Create new member - use membership number as initial password hash
+          await prisma.user.create({
+            data: {
+              name: member.name,
+              normalizedName,
+              email,
+              membershipNumber,
+              passwordHash: numberHash,
+              emailPasswordHash: emailHash,
+              membershipNumberPasswordHash: numberHash,
+              role: Role.MEMBER,
+              status: AccountStatus.ACTIVE,
+              emailVerifiedAt: new Date(),
+              phone: member.mobile || member.homePhone || null,
+            },
+          });
+          result.created++;
+        }
+      } else if (member.status === "Resigned" && existing) {
+        // Disable resigned members who were previously imported
+        await prisma.user.update({
+          where: { membershipNumber },
+          data: { status: AccountStatus.DISABLED },
+        });
+        result.disabled++;
+      } else {
+        // Skip resigned members who don't exist
+        result.skipped++;
+      }
+    } catch (e) {
+      // Catch any errors for this row and continue processing
+      const errorMsg = e instanceof Error ? e.message : "Unknown error";
       result.conflicts.push(
-        `Duplicate name: "${member.name}" (normalized: "${normalizedName}") - skipped`
+        `Row "${member.name}" (${member.membershipNumber}): ${errorMsg} - skipped`
       );
       result.skipped++;
       continue;
-    }
-
-    // Check if membership number already exists
-    const existing = await prisma.user.findUnique({
-      where: { membershipNumber },
-    });
-
-    if (member.status === "Active") {
-      // Create or update active member
-      const { emailHash, numberHash } = await hashMemberCredentials(
-        member.email || "",
-        membershipNumber,
-      );
-
-      if (existing) {
-        // Update existing member
-        await prisma.user.update({
-          where: { membershipNumber },
-          data: {
-            name: member.name,
-            normalizedName,
-            email,
-            emailPasswordHash: emailHash,
-            membershipNumberPasswordHash: numberHash,
-            status: AccountStatus.ACTIVE,
-            phone: member.mobile || member.homePhone || null,
-          },
-        });
-        result.updated++;
-      } else {
-        // Check for conflicting normalized name
-        const nameConflict = await prisma.user.findFirst({
-          where: {
-            normalizedName,
-            role: "MEMBER",
-          },
-        });
-
-        if (nameConflict) {
-          result.conflicts.push(
-            `Name conflict: "${member.name}" matches existing member ${nameConflict.name} - skipped`
-          );
-          result.skipped++;
-          continue;
-        }
-
-        // Create new member - use membership number as initial password hash
-        await prisma.user.create({
-          data: {
-            name: member.name,
-            normalizedName,
-            email,
-            membershipNumber,
-            passwordHash: numberHash, // Backwards compatibility
-            emailPasswordHash: emailHash,
-            membershipNumberPasswordHash: numberHash,
-            role: Role.MEMBER,
-            status: AccountStatus.ACTIVE,
-            emailVerifiedAt: new Date(),
-            phone: member.mobile || member.homePhone || null,
-          },
-        });
-        result.created++;
-      }
-    } else if (member.status === "Resigned" && existing) {
-      // Disable resigned members who were previously imported
-      await prisma.user.update({
-        where: { membershipNumber },
-        data: { status: AccountStatus.DISABLED },
-      });
-      result.disabled++;
-    } else {
-      // Skip resigned members who don't exist
-      result.skipped++;
     }
   }
 

@@ -34,7 +34,7 @@ enum PlayingDayStatus {
 
 model User {
   id                          String        @id @default(cuid())
-  email                       String        @unique
+  email                       String?
   phone                       String?
   name                        String
   normalizedName              String?
@@ -54,6 +54,7 @@ model User {
 
   @@index([normalizedName])
   @@index([membershipNumber])
+  @@index([email, role])
 }
 
 model ClubSettings {
