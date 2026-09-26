@@ -52,6 +52,30 @@ export default function NewPlayingDayPage() {
           </select>
         </label>
         <label>
+          Format
+          <select
+            name="format"
+            defaultValue="NORMAL"
+            onChange={(e) => {
+              const isShot = e.target.value === "SHOTGUN";
+              const lastInput = document.querySelector<HTMLInputElement>(
+                'input[name="lastTeeTime"]'
+              );
+              const intervalInput = document.querySelector<HTMLInputElement>(
+                'input[name="intervalMinutes"]'
+              );
+              if (lastInput) {
+                lastInput.disabled = isShot;
+                lastInput.required = !isShot;
+              }
+              if (intervalInput) intervalInput.disabled = isShot;
+            }}
+          >
+            <option value="NORMAL">Normal (tee times)</option>
+            <option value="SHOTGUN">Shotgun (9 tees, 19 groups)</option>
+          </select>
+        </label>
+        <label>
           Format label
           <input name="formatLabel" placeholder="e.g. Stableford" />
         </label>

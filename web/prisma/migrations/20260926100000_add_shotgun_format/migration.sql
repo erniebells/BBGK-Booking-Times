@@ -10,8 +10,13 @@ ALTER TABLE "PlayingDay" ADD COLUMN "format" "PlayingDayFormat" NOT NULL DEFAULT
 -- Step 3: Add teeNumber column to TeeSlot (nullable for backward compatibility)
 ALTER TABLE "TeeSlot" ADD COLUMN "teeNumber" INTEGER;
 
--- Step 4: Drop old unique constraint on TeeSlot
-ALTER TABLE "TeeSlot" DROP CONSTRAINT "TeeSlot_dayId_startsAt_key";
+-- Step 4: Drop old unique constraint on TeeSlot (if exists)
+DO $$ 
+BEGIN
+    IF EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'TeeSlot_dayId_startsAt_key') THEN
+        ALTER TABLE "TeeSlot" DROP CONSTRAINT "TeeSlot_dayId_startsAt_key";
+    END IF;
+END $$;
 
 -- Step 5: Add new unique constraint including teeNumber
 ALTER TABLE "TeeSlot" ADD CONSTRAINT "TeeSlot_dayId_startsAt_teeNumber_key" UNIQUE ("dayId", "startsAt", "teeNumber");

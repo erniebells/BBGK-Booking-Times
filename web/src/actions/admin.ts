@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
-import { AccountStatus, PlayingDayStatus, PlayingDayType, Role } from "@prisma/client";
+import { AccountStatus, PlayingDayStatus, PlayingDayType, PlayingDayFormat, Role } from "@prisma/client";
 import { requireAdmin } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { writeAudit } from "@/lib/audit";
@@ -10,6 +10,7 @@ import { hash } from "bcryptjs";
 import {
   combineDateAndTimeUtc,
   generateSlotTimes,
+  generateShotgunSlots,
 } from "@/lib/slots";
 import { getClubSettings } from "@/lib/club";
 import { BookingError, cancelBooking, createBooking } from "@/lib/booking";
@@ -25,10 +26,11 @@ const daySchema = z.object({
   title: z.string().min(2).max(120),
   date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
   type: z.enum(["NORMAL", "TOURNAMENT"]),
+  format: z.enum(["NORMAL", "SHOTGUN"]).default("NORMAL"),
   formatLabel: z.string().max(80).optional(),
   notes: z.string().max(2000).optional(),
   firstTeeTime: z.string(),
-  lastTeeTime: z.string(),
+  lastTeeTime: z.string().optional(),
   intervalMinutes: z.coerce.number().int().min(1).max(60).default(10),
 });
 
@@ -40,22 +42,32 @@ export async function previewSlots(formData: FormData): Promise<
     title: formData.get("title") || "Preview",
     date: formData.get("date"),
     type: formData.get("type") || "NORMAL",
+    format: formData.get("format") || "NORMAL",
     formatLabel: formData.get("formatLabel") || undefined,
     notes: formData.get("notes") || undefined,
     firstTeeTime: formData.get("firstTeeTime"),
-    lastTeeTime: formData.get("lastTeeTime"),
+    lastTeeTime: formData.get("lastTeeTime") || undefined,
     intervalMinutes: formData.get("intervalMinutes") || 10,
   });
   if (!parsed.success) {
     return { ok: false, error: "Invalid day details." };
   }
   try {
-    const times = generateSlotTimes(
-      parsed.data.firstTeeTime,
-      parsed.data.lastTeeTime,
-      parsed.data.intervalMinutes,
-    );
-    return { ok: true, times };
+    if (parsed.data.format === "SHOTGUN") {
+      const shotgunSlots = generateShotgunSlots(parsed.data.firstTeeTime);
+      const times = shotgunSlots.map(s => `${s.startTime} (Tee ${s.teeNumber})`);
+      return { ok: true, times };
+    } else {
+      if (!parsed.data.lastTeeTime) {
+        return { ok: false, error: "Last tee time required for normal format." };
+      }
+      const times = generateSlotTimes(
+        parsed.data.firstTeeTime,
+        parsed.data.lastTeeTime,
+        parsed.data.intervalMinutes,
+      );
+      return { ok: true, times };
+    }
   } catch (e) {
     return {
       ok: false,
@@ -73,49 +85,71 @@ export async function createPlayingDay(
     title: formData.get("title"),
     date: formData.get("date"),
     type: formData.get("type") || "NORMAL",
+    format: formData.get("format") || "NORMAL",
     formatLabel: formData.get("formatLabel") || undefined,
     notes: formData.get("notes") || undefined,
     firstTeeTime: formData.get("firstTeeTime"),
-    lastTeeTime: formData.get("lastTeeTime"),
+    lastTeeTime: formData.get("lastTeeTime") || undefined,
     intervalMinutes: formData.get("intervalMinutes") || 10,
   });
   if (!parsed.success) {
     return { ok: false, error: "Invalid day details." };
   }
 
-  let times: string[];
-  try {
-    times = generateSlotTimes(
-      parsed.data.firstTeeTime,
-      parsed.data.lastTeeTime,
-      parsed.data.intervalMinutes,
-    );
-  } catch (e) {
-    return {
-      ok: false,
-      error: e instanceof Error ? e.message : "Invalid tee times.",
-    };
-  }
-
   const settings = await getClubSettings();
   const date = new Date(`${parsed.data.date}T00:00:00.000Z`);
+
+  // Generate slots based on format
+  let slotsData;
+  let slotCount;
+  if (parsed.data.format === "SHOTGUN") {
+    const shotgunSlots = generateShotgunSlots(parsed.data.firstTeeTime);
+    slotCount = shotgunSlots.length;
+    slotsData = shotgunSlots.map((slot) => ({
+      startsAt: combineDateAndTimeUtc(date, slot.startTime, settings.timezone),
+      capacity: 4,
+      teeNumber: slot.teeNumber,
+    }));
+  } else {
+    // NORMAL format
+    if (!parsed.data.lastTeeTime) {
+      return { ok: false, error: "Last tee time required for normal format." };
+    }
+    let times: string[];
+    try {
+      times = generateSlotTimes(
+        parsed.data.firstTeeTime,
+        parsed.data.lastTeeTime,
+        parsed.data.intervalMinutes,
+      );
+    } catch (e) {
+      return {
+        ok: false,
+        error: e instanceof Error ? e.message : "Invalid tee times.",
+      };
+    }
+    slotCount = times.length;
+    slotsData = times.map((t) => ({
+      startsAt: combineDateAndTimeUtc(date, t, settings.timezone),
+      capacity: 4,
+      teeNumber: null,
+    }));
+  }
 
   const day = await prisma.playingDay.create({
     data: {
       title: parsed.data.title,
       date,
       type: parsed.data.type as PlayingDayType,
+      format: parsed.data.format as PlayingDayFormat,
       formatLabel: parsed.data.formatLabel || null,
       notes: parsed.data.notes || null,
       firstTeeTime: parsed.data.firstTeeTime,
-      lastTeeTime: parsed.data.lastTeeTime,
+      lastTeeTime: parsed.data.lastTeeTime || parsed.data.firstTeeTime,
       intervalMinutes: parsed.data.intervalMinutes,
       status: PlayingDayStatus.DRAFT,
       slots: {
-        create: times.map((t) => ({
-          startsAt: combineDateAndTimeUtc(date, t, settings.timezone),
-          capacity: 4,
-        })),
+        create: slotsData,
       },
     },
   });
@@ -125,7 +159,7 @@ export async function createPlayingDay(
     action: "playing_day.create",
     entityType: "PlayingDay",
     entityId: day.id,
-    metadata: { title: day.title, slots: times.length },
+    metadata: { title: day.title, slots: slotCount },
   });
 
   revalidatePath("/admin");
