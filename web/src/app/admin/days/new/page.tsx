@@ -26,16 +26,7 @@ export default function NewPlayingDayPage() {
     <div className="mx-auto max-w-xl card-stack">
       <h1 className="font-display text-3xl text-emerald-950">New playing day</h1>
       <form action={createAction} className="card-stack">
-        <FormMessage
-          result={
-            createState?.ok && createState.dayId
-              ? {
-                  ok: true,
-                  message: `Draft created. Open admin day ${createState.dayId} to publish.`,
-                }
-              : createState
-          }
-        />
+        <FormMessage result={createState} />
         <label>
           Title
           <input name="title" required defaultValue="Club day" />

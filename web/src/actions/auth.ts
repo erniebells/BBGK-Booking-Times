@@ -178,6 +178,37 @@ export async function resendVerification(
   return { ok: true, message: "A new code was sent." };
 }
 
+/** Only allow same-origin relative paths for post-login navigation. */
+function safeInternalPath(raw: string): string {
+  if (!raw.startsWith("/") || raw.startsWith("//") || raw.includes("://")) {
+    return "/";
+  }
+  return raw;
+}
+
+function isCredentialsFailure(error: unknown): boolean {
+  if (!error || typeof error !== "object") return false;
+  // Prefer instanceof, but also match by `type` when duplicate @auth/core
+  // copies break the prototype chain across next-auth / adapters.
+  if (error instanceof AuthError) return true;
+  const type = "type" in error ? String((error as { type?: unknown }).type ?? "") : "";
+  return type === "CredentialsSignin" || type === "CallbackRouteError";
+}
+
+function isFailedSignInResult(result: unknown): boolean {
+  if (typeof result === "string") {
+    try {
+      return new URL(result, "http://local.invalid").searchParams.has("error");
+    } catch {
+      return /[?&]error=/.test(result);
+    }
+  }
+  if (result && typeof result === "object" && "error" in result) {
+    return Boolean((result as { error?: unknown }).error);
+  }
+  return false;
+}
+
 export async function loginAction(
   _prev: ActionResult | null,
   formData: FormData,
@@ -186,25 +217,36 @@ export async function loginAction(
     .toLowerCase()
     .trim();
   const password = String(formData.get("password") ?? "");
+  const redirectTo = safeInternalPath(
+    String(formData.get("callbackUrl") ?? formData.get("redirectTo") ?? "/"),
+  );
 
   const rl = await consumeRateLimit(`login:${email || "unknown"}`, 20, 15 * 60 * 1000);
   if (!rl.ok) {
     return { ok: false, error: `Too many attempts. Try again in ${rl.retryAfterSec}s.` };
   }
 
+  // Use redirect:false so Auth.js does not throw NEXT_REDIRECT itself.
+  // useActionState + absolute Location URLs (e.g. http://0.0.0.0:3000/) can
+  // leave the login UI stuck with no transition; we navigate via next/navigation.
   try {
-    await signIn("credentials", {
+    const result = await signIn("credentials", {
       email,
       password,
-      redirectTo: "/",
+      redirect: false,
+      redirectTo,
     });
+    if (isFailedSignInResult(result)) {
+      return { ok: false, error: "Invalid email or password." };
+    }
   } catch (e) {
-    if (e instanceof AuthError) {
+    if (isCredentialsFailure(e)) {
       return { ok: false, error: "Invalid email or password." };
     }
     throw e;
   }
-  return { ok: true };
+
+  redirect(redirectTo);
 }
 
 export async function logoutAction() {
