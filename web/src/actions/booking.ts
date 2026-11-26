@@ -32,7 +32,7 @@ export async function bookTeeTime(
       playerNames: names,
       actorId: session.user.id,
     });
-    revalidatePath("/days");
+    revalidatePath("/days", "layout");
     revalidatePath("/bookings");
     return {
       ok: true,

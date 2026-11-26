@@ -1,6 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { redirect } from "next/navigation";
 import { z } from "zod";
 import { AccountStatus, PlayingDayStatus, PlayingDayType, Role } from "@prisma/client";
 import { requireAdmin } from "@/lib/auth";
@@ -122,7 +123,10 @@ export async function createPlayingDay(
   });
 
   revalidatePath("/admin");
-  return { ok: true, dayId: day.id, message: "Draft day created." };
+  revalidatePath(`/admin/days/${day.id}`);
+  // Navigate into the new sheet — useActionState otherwise leaves the create
+  // form stuck with only a raw day id and no link to open/publish.
+  redirect(`/admin/days/${day.id}`);
 }
 
 export async function setPlayingDayStatus(
@@ -141,7 +145,9 @@ export async function setPlayingDayStatus(
     entityId: day.id,
   });
   revalidatePath("/admin");
+  revalidatePath(`/admin/days/${dayId}`);
   revalidatePath("/days");
+  revalidatePath(`/days/${dayId}`);
   return { ok: true, message: `Day marked ${status}.` };
 }
 
@@ -204,7 +210,8 @@ export async function adminAddPlayers(
       actorId: session.user.id,
       bypassWindow: true,
     });
-    revalidatePath("/admin");
+    revalidatePath("/admin", "layout");
+    revalidatePath("/days", "layout");
     return { ok: true, message: "Players added." };
   } catch (e) {
     return {
@@ -317,6 +324,8 @@ export async function updatePlayingDayTimes(
     metadata: { clearedBookings: hasBookings && confirm },
   });
 
-  revalidatePath("/admin");
+  revalidatePath("/admin", "layout");
+  revalidatePath(`/admin/days/${dayId}`);
+  revalidatePath("/days", "layout");
   return { ok: true, message: "Tee sheet regenerated." };
 }

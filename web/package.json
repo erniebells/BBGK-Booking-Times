@@ -42,5 +42,8 @@
     "tsx": "^4.20.3",
     "typescript": "^5",
     "vitest": "^3.2.4"
+  },
+  "overrides": {
+    "@auth/core": "0.40.0"
   }
 }
