@@ -177,24 +177,21 @@ export interface ShotgunSlotSpec {
  * Classic shotgun from one shared start time:
  * - Tee 1: 3 slots (start, +10, +20)
  * - Tees 2–9: 2 slots each (start, +10)
- * Everyone's first wave starts together.
+ * Rows ordered by tee, then time (Tee 1's three times, then Tee 2, …).
  */
 export function generateDefaultShotgunSlots(startTime: string): ShotgunSlotSpec[] {
   const start = parseTimeToMinutes(startTime);
   const slots: ShotgunSlotSpec[] = [];
-  for (let wave = 0; wave < 3; wave++) {
-    const t = minutesToTime(start + wave * 10);
-    const maxTee = wave === 2 ? 1 : 9;
-    for (let tee = 1; tee <= maxTee; tee++) {
-      slots.push({ teeNumber: tee, startTime: t });
+  for (let tee = 1; tee <= 9; tee++) {
+    const waves = tee === 1 ? 3 : 2;
+    for (let wave = 0; wave < waves; wave++) {
+      slots.push({
+        teeNumber: tee,
+        startTime: minutesToTime(start + wave * 10),
+      });
     }
   }
-  return slots.sort((a, b) => {
-    const ta = parseTimeToMinutes(a.startTime);
-    const tb = parseTimeToMinutes(b.startTime);
-    if (ta !== tb) return ta - tb;
-    return a.teeNumber - b.teeNumber;
-  });
+  return slots;
 }
 
 /**
@@ -222,11 +219,10 @@ export function generateShotgunSlotsFromTeeTimes(
   if (slots.length === 0) {
     throw new Error("Add at least one tee time on one of the 9 tees.");
   }
+  // Tee then time — matches shotgun sheet display / create order.
   return slots.sort((a, b) => {
-    const ta = parseTimeToMinutes(a.startTime);
-    const tb = parseTimeToMinutes(b.startTime);
-    if (ta !== tb) return ta - tb;
-    return a.teeNumber - b.teeNumber;
+    if (a.teeNumber !== b.teeNumber) return a.teeNumber - b.teeNumber;
+    return parseTimeToMinutes(a.startTime) - parseTimeToMinutes(b.startTime);
   });
 }
 

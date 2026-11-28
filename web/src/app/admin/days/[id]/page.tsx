@@ -20,7 +20,7 @@ export default async function AdminDayPage({
     where: { id },
     include: {
       slots: {
-        orderBy: [{ startsAt: "asc" }, { teeNumber: "asc" }],
+        orderBy: [{ teeNumber: "asc" }, { startsAt: "asc" }],
         include: {
           places: {
             where: { booking: { cancelledAt: null } },

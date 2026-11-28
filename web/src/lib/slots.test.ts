@@ -53,7 +53,7 @@ describe("parseClubDateInput / formatClubDate", () => {
 });
 
 describe("generateDefaultShotgunSlots", () => {
-  it("uses 3 slots on Tee 1 and 2 on Tees 2–9 from one start", () => {
+  it("uses 3 slots on Tee 1 and 2 on Tees 2–9, ordered tee then time", () => {
     const slots = generateDefaultShotgunSlots("10:30");
     expect(slots).toHaveLength(19);
     expect(slots.filter((s) => s.teeNumber === 1)).toHaveLength(3);
@@ -61,6 +61,28 @@ describe("generateDefaultShotgunSlots", () => {
       expect(slots.filter((s) => s.teeNumber === tee)).toHaveLength(2);
     }
     expect(slots.filter((s) => s.startTime === "10:30")).toHaveLength(9);
+    // Exact row order: Tee 1 ×3, then each of Tees 2–9 ×2 (start, +10).
+    expect(slots.map((s) => `Tee ${s.teeNumber} ${s.startTime}`)).toEqual([
+      "Tee 1 10:30",
+      "Tee 1 10:40",
+      "Tee 1 10:50",
+      "Tee 2 10:30",
+      "Tee 2 10:40",
+      "Tee 3 10:30",
+      "Tee 3 10:40",
+      "Tee 4 10:30",
+      "Tee 4 10:40",
+      "Tee 5 10:30",
+      "Tee 5 10:40",
+      "Tee 6 10:30",
+      "Tee 6 10:40",
+      "Tee 7 10:30",
+      "Tee 7 10:40",
+      "Tee 8 10:30",
+      "Tee 8 10:40",
+      "Tee 9 10:30",
+      "Tee 9 10:40",
+    ]);
   });
 });
 
