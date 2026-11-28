@@ -58,7 +58,21 @@ Seed demo player: `member@demo.golf` / last 4 of SA ID `8001015009087` → **908
 
 **Clone / Delete / Closed / Cancelled:** Admin list and day detail. Clone opens the create form prefilled (Date / Sponsor / Type of play editable) as a new **draft** (no bookings copied).
 
-Players book **empty cells** with **any player name**. After booking, **Finished** emails + WhatsApps the full day sheet summary to the player’s profile contacts (console log + status when SMTP / WhatsApp env unset). Admin can clear any name. Reset a player under Admin → Accounts.
+Players book **empty cells** with **any player name**. After booking, **Finished** calls `sendBookingConfirmation` and emails + WhatsApps the **full day sheet** to the player’s profile contacts.
+
+### Email + WhatsApp (Finished / booking confirmation)
+
+Unset providers → message logged to the app console (dev-friendly). Set in `web/.env` (never commit secrets):
+
+| Channel | Env vars |
+|---------|----------|
+| **SMTP email** | `SMTP_HOST`, `SMTP_PORT` (default 587), `SMTP_USER`, `SMTP_PASS`, `FROM_EMAIL` |
+| **Meta WhatsApp** | `WHATSAPP_TOKEN`, `WHATSAPP_PHONE_ID` |
+| **Twilio WhatsApp** | `TWILIO_SID`, `TWILIO_TOKEN`, `TWILIO_WHATSAPP_FROM` (e.g. `whatsapp:+14155238886`) |
+
+Meta is tried first when both Meta and Twilio are configured. SA numbers like `082…` are normalized to `27…`. See `web/.env.example`.
+
+Admin can clear any name. Reset a player under Admin → Accounts.
 
 Tee sheets: **`/days`**.
 

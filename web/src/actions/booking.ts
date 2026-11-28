@@ -10,7 +10,7 @@ import {
 } from "@/lib/booking";
 import { prisma } from "@/lib/prisma";
 import { buildDaySheetSummary } from "@/lib/sheet-summary";
-import { notifyEmailAndWhatsApp } from "@/lib/notify";
+import { sendBookingConfirmation } from "@/lib/notify";
 import { writeAudit } from "@/lib/audit";
 import type { ActionResult } from "./auth";
 
@@ -60,8 +60,8 @@ export async function bookPlayerCell(
 }
 
 /**
- * After booking: send full day tee sheet summary to the player's email + WhatsApp.
- * Uses notify placeholders (console log + status) when providers are unset.
+ * After booking: send full day tee sheet summary to the player's email + WhatsApp
+ * via sendBookingConfirmation (SMTP + Meta/Twilio WhatsApp; console when unset).
  */
 export async function finishBookingNotify(
   _prev: ActionResult | null,
@@ -82,7 +82,7 @@ export async function finishBookingNotify(
   });
   if (!user) return { ok: false, error: "Player profile not found." };
 
-  const results = await notifyEmailAndWhatsApp({
+  const results = await sendBookingConfirmation({
     email: user.email,
     whatsapp: user.whatsapp || user.phone,
     subject: summary.subject,
@@ -102,7 +102,11 @@ export async function finishBookingNotify(
     },
   });
 
+  const failed = results.filter((r) => r.mode === "error");
   const detail = results.map((r) => r.detail).join(" ");
+  if (failed.length === results.length) {
+    return { ok: false, error: `Could not send sheet. ${detail}` };
+  }
   return {
     ok: true,
     message: `Finished — sheet sent. ${detail}`,
