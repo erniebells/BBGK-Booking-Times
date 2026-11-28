@@ -55,6 +55,12 @@ export default async function AdminDayPage({
           <p className="text-sm text-emerald-900/60">{day.status}</p>
         </div>
         <div className="flex flex-wrap gap-2">
+          <Link
+            href={`/admin/days/new?cloneFrom=${day.id}`}
+            className="btn btn-secondary"
+          >
+            Clone tee sheet
+          </Link>
           {day.status === "DRAFT" && (
             <form action={publish}>
               <button className="btn" type="submit">

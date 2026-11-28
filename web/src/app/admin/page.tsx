@@ -39,17 +39,24 @@ export default async function AdminHomePage() {
         ) : (
           <ul className="grid gap-2">
             {days.map((d) => (
-              <li key={d.id}>
+              <li
+                key={d.id}
+                className="flex flex-wrap items-center gap-2 rounded-lg border border-emerald-900/10 bg-white/80 px-3 py-2 text-sm"
+              >
                 <Link
                   href={`/admin/days/${d.id}`}
-                  className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-emerald-900/10 bg-white/80 px-3 py-2 text-sm hover:border-emerald-700/40"
+                  className="min-w-0 flex-1 hover:text-emerald-800"
                 >
-                  <span>
-                    {formatClubDate(d.date)} · {d.title} ·{" "}
-                    {d.format === "SHOTGUN" ? "Shotgun" : "Tee Times"}
-                    {d.sponsor ? ` · ${d.sponsor}` : ""}
-                  </span>
-                  <span className="text-emerald-900/55">{d.status}</span>
+                  {formatClubDate(d.date)} · {d.title} ·{" "}
+                  {d.format === "SHOTGUN" ? "Shotgun" : "Tee Times"}
+                  {d.sponsor ? ` · ${d.sponsor}` : ""}
+                  <span className="ml-2 text-emerald-900/55">{d.status}</span>
+                </Link>
+                <Link
+                  href={`/admin/days/new?cloneFrom=${d.id}`}
+                  className="btn btn-secondary shrink-0 text-xs"
+                >
+                  Clone
                 </Link>
               </li>
             ))}

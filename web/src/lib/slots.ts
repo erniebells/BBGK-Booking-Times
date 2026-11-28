@@ -128,6 +128,21 @@ export function formatClubTime(date: Date, timeZone = CLUB_TZ): string {
   }).format(date);
 }
 
+/** HH:MM wall clock in club TZ (stable for cloning / combineDateAndTimeUtc). */
+export function formatClubTimeHhMm(date: Date, timeZone = CLUB_TZ): string {
+  const parts = new Intl.DateTimeFormat("en-GB", {
+    timeZone,
+    hour: "2-digit",
+    minute: "2-digit",
+    hourCycle: "h23",
+  }).formatToParts(date);
+  const map: Record<string, string> = {};
+  for (const p of parts) {
+    if (p.type !== "literal") map[p.type] = p.value;
+  }
+  return `${map.hour}:${map.minute}`;
+}
+
 export function formatClubDate(date: Date, timeZone = CLUB_TZ): string {
   return new Intl.DateTimeFormat("en-ZA", {
     timeZone,

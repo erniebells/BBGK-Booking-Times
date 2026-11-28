@@ -16,6 +16,8 @@ import { writeAudit } from "@/lib/audit";
 import {
   combineDateAndTimeUtc,
   formatClubDate,
+  formatClubDateInput,
+  formatClubTimeHhMm,
   generateDefaultShotgunSlots,
   generateSlotTimes,
   generateTeeTimeSlots,
@@ -45,13 +47,96 @@ function resolveFormat(
   return PlayingDayFormat.TEE_TIMES;
 }
 
+export type CloneDayPrefill = {
+  cloneFromId: string;
+  sourceTitle: string;
+  title: string;
+  date: string;
+  sponsor: string;
+  sheetFormat: "SHOTGUN" | "TEE_TIMES";
+  formatLabel: string;
+  notes: string;
+  firstTeeTime: string;
+  slotCount: number;
+  type: "NORMAL" | "TOURNAMENT";
+  slotRows: string[];
+};
+
+/** Prefill for Clone tee sheet — structure only (no bookings). */
+export async function getCloneDayPrefill(
+  dayId: string,
+): Promise<CloneDayPrefill | null> {
+  await requireAdmin();
+  const settings = await getClubSettings();
+  const day = await prisma.playingDay.findUnique({
+    where: { id: dayId },
+    include: {
+      slots: {
+        orderBy: [{ teeNumber: "asc" }, { startsAt: "asc" }],
+        select: { startsAt: true, teeNumber: true },
+      },
+    },
+  });
+  if (!day) return null;
+  const sheetFormat =
+    day.format === PlayingDayFormat.SHOTGUN ? "SHOTGUN" : "TEE_TIMES";
+  const slotRows = day.slots.map(
+    (s) =>
+      `${formatClubTimeHhMm(s.startsAt, settings.timezone)} · Tee ${s.teeNumber}`,
+  );
+  return {
+    cloneFromId: day.id,
+    sourceTitle: day.title,
+    title: "",
+    date: formatClubDateInput(day.date, settings.timezone),
+    sponsor: day.sponsor ?? "",
+    sheetFormat,
+    formatLabel:
+      day.formatLabel ||
+      (sheetFormat === "SHOTGUN" ? "Shotgun" : "Tee Times"),
+    notes: day.notes ?? "",
+    firstTeeTime: day.firstTeeTime,
+    slotCount: Math.max(1, day.slots.length),
+    type: day.type === "TOURNAMENT" ? "TOURNAMENT" : "NORMAL",
+    slotRows,
+  };
+}
+
 export async function previewSlots(formData: FormData): Promise<
   ActionResult & { times?: string[]; rows?: string[] }
 > {
   await requireAdmin();
   const sheetFormat = String(formData.get("sheetFormat") ?? "TEE_TIMES");
+  const cloneFromId = String(formData.get("cloneFromId") ?? "").trim();
   try {
-    if (resolveFormat(sheetFormat) === PlayingDayFormat.SHOTGUN) {
+    const format = resolveFormat(sheetFormat);
+    if (cloneFromId) {
+      const source = await prisma.playingDay.findUnique({
+        where: { id: cloneFromId },
+        include: {
+          slots: {
+            orderBy: [{ teeNumber: "asc" }, { startsAt: "asc" }],
+            select: { startsAt: true, teeNumber: true },
+          },
+        },
+      });
+      if (source && source.format === format) {
+        const settings = await getClubSettings();
+        // Tee-times clone: show exact copied structure. Shotgun: formula from start.
+        if (format === PlayingDayFormat.TEE_TIMES) {
+          const rows = source.slots.map(
+            (s) =>
+              `${formatClubTimeHhMm(s.startsAt, settings.timezone)} · Tee ${s.teeNumber}`,
+          );
+          return {
+            ok: true,
+            rows,
+            times: rows.map((r) => r.split(" · ")[0]!),
+          };
+        }
+      }
+    }
+    if (format === PlayingDayFormat.SHOTGUN) {
       const start = String(formData.get("firstTeeTime") ?? "10:30");
       const slots = generateDefaultShotgunSlots(start);
       return {
@@ -94,35 +179,84 @@ export async function createPlayingDay(
   // Calendar day the admin picked (noon UTC anchor — see parseClubDateInput).
   const date = parseClubDateInput(parsed.data.date);
   const format = resolveFormat(parsed.data.sheetFormat);
+  const cloneFromId = String(formData.get("cloneFromId") ?? "").trim();
 
   let firstTeeTime = "07:00";
   let lastTeeTime = "09:00";
   let intervalMinutes = 10;
   let slotCreates: { startsAt: Date; capacity: number; teeNumber: number }[] = [];
+  let clonedFrom: string | null = null;
 
   try {
-    if (format === PlayingDayFormat.SHOTGUN) {
-      firstTeeTime = String(formData.get("firstTeeTime") ?? "10:30");
-      const slots = generateDefaultShotgunSlots(firstTeeTime);
-      const mins = slots.map((s) => parseTimeToMinutes(s.startTime));
-      lastTeeTime = minutesToTime(Math.max(...mins));
-      intervalMinutes = 10;
-      slotCreates = slots.map((s) => ({
-        startsAt: combineDateAndTimeUtc(date, s.startTime, settings.timezone),
-        capacity: 4,
-        teeNumber: s.teeNumber,
-      }));
-    } else {
-      firstTeeTime = String(formData.get("firstTeeTime") ?? "07:00");
-      const slotCount = Number(formData.get("slotCount") || 12);
-      intervalMinutes = 10;
-      const times = generateTeeTimeSlots(firstTeeTime, slotCount, intervalMinutes);
-      lastTeeTime = times[times.length - 1]!;
-      slotCreates = times.map((t) => ({
-        startsAt: combineDateAndTimeUtc(date, t, settings.timezone),
-        capacity: 4,
-        teeNumber: 1,
-      }));
+    let copiedFromSource = false;
+    if (cloneFromId) {
+      const source = await prisma.playingDay.findUnique({
+        where: { id: cloneFromId },
+        include: {
+          slots: {
+            orderBy: [{ teeNumber: "asc" }, { startsAt: "asc" }],
+            select: { startsAt: true, teeNumber: true, capacity: true },
+          },
+        },
+      });
+      if (!source) {
+        return { ok: false, error: "Source tee sheet not found." };
+      }
+      // Same format → copy slot structure (times/tees/capacity), never bookings.
+      if (source.format === format && source.slots.length > 0) {
+        if (format === PlayingDayFormat.TEE_TIMES) {
+          slotCreates = source.slots.map((s) => ({
+            startsAt: combineDateAndTimeUtc(
+              date,
+              formatClubTimeHhMm(s.startsAt, settings.timezone),
+              settings.timezone,
+            ),
+            capacity: s.capacity,
+            teeNumber: s.teeNumber,
+          }));
+          firstTeeTime = source.firstTeeTime;
+          lastTeeTime = source.lastTeeTime;
+          intervalMinutes = source.intervalMinutes || 10;
+          copiedFromSource = true;
+          clonedFrom = source.id;
+        }
+        // Shotgun: keep formulaic layout from editable start time (below).
+        if (format === PlayingDayFormat.SHOTGUN) {
+          clonedFrom = source.id;
+        }
+      } else if (source.format !== format) {
+        clonedFrom = source.id; // still a clone, but slots regenerated for new format
+      }
+    }
+
+    if (!copiedFromSource) {
+      if (format === PlayingDayFormat.SHOTGUN) {
+        firstTeeTime = String(formData.get("firstTeeTime") ?? "10:30");
+        const slots = generateDefaultShotgunSlots(firstTeeTime);
+        const mins = slots.map((s) => parseTimeToMinutes(s.startTime));
+        lastTeeTime = minutesToTime(Math.max(...mins));
+        intervalMinutes = 10;
+        slotCreates = slots.map((s) => ({
+          startsAt: combineDateAndTimeUtc(date, s.startTime, settings.timezone),
+          capacity: 4,
+          teeNumber: s.teeNumber,
+        }));
+      } else {
+        firstTeeTime = String(formData.get("firstTeeTime") ?? "07:00");
+        const slotCount = Number(formData.get("slotCount") || 12);
+        intervalMinutes = 10;
+        const times = generateTeeTimeSlots(
+          firstTeeTime,
+          slotCount,
+          intervalMinutes,
+        );
+        lastTeeTime = times[times.length - 1]!;
+        slotCreates = times.map((t) => ({
+          startsAt: combineDateAndTimeUtc(date, t, settings.timezone),
+          capacity: 4,
+          teeNumber: 1,
+        }));
+      }
     }
   } catch (e) {
     return {
@@ -158,7 +292,7 @@ export async function createPlayingDay(
 
   await writeAudit({
     actorId: session.user.id,
-    action: "playing_day.create",
+    action: clonedFrom ? "playing_day.clone" : "playing_day.create",
     entityType: "PlayingDay",
     entityId: day.id,
     metadata: {
@@ -166,6 +300,8 @@ export async function createPlayingDay(
       date: parsed.data.date,
       format,
       slots: slotCreates.length,
+      clonedFrom,
+      bookingsCopied: false,
     },
   });
 

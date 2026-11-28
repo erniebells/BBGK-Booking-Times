@@ -55,6 +55,8 @@ Seed demo player: `member@demo.golf` / last 4 of SA ID `8001015009087` → **908
 - **Shotgun**: Date, Sponsor, one shared start time. Auto slots: Tee 1×3 (start/+10/+20), Tees 2–9×2 (start/+10). Rows ordered **tee then time** (19 rows). Grid: TIME \| TEE \| Player 1–4.
 - Chosen **Date** is stored as a club calendar day (noon UTC anchor) so it displays as the same day after save.
 
+**Clone tee sheet:** Admin home list and day detail have **Clone** → opens the create form prefilled (Date / Sponsor / Format editable). Saves a new **draft** with the same slot times/tees (or shotgun layout from the start time). Bookings are never copied.
+
 Players book **empty cells only**; admin can clear any name. Reset a player under Admin → Accounts.
 
 Tee sheets: **`/days`**.

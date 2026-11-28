@@ -105,6 +105,15 @@ describe("generateShotgunSlotsFromTeeTimes", () => {
   });
 });
 
+describe("formatClubTimeHhMm", () => {
+  it("returns HH:MM in club timezone", async () => {
+    const { formatClubTimeHhMm } = await import("./slots");
+    // 08:30 UTC = 10:30 Africa/Johannesburg
+    const d = new Date("2026-11-28T08:30:00.000Z");
+    expect(formatClubTimeHhMm(d, "Africa/Johannesburg")).toBe("10:30");
+  });
+});
+
 describe("parseTimeToMinutes", () => {
   it("parses HH:MM", () => {
     expect(parseTimeToMinutes("09:15")).toBe(9 * 60 + 15);
