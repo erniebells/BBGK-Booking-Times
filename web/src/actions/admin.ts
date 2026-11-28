@@ -15,10 +15,11 @@ import { prisma } from "@/lib/prisma";
 import { writeAudit } from "@/lib/audit";
 import {
   combineDateAndTimeUtc,
-  generateShotgunSlotsFromTeeTimes,
+  formatClubDate,
+  generateDefaultShotgunSlots,
   generateSlotTimes,
   generateTeeTimeSlots,
-  parseTimeList,
+  parseClubDateInput,
   parseTimeToMinutes,
   minutesToTime,
 } from "@/lib/slots";
@@ -27,14 +28,22 @@ import { BookingError, cancelBooking, createBooking } from "@/lib/booking";
 import type { ActionResult } from "./auth";
 
 const baseDaySchema = z.object({
-  title: z.string().min(2).max(120),
+  title: z.string().min(1).max(120).optional(),
   date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
   type: z.enum(["NORMAL", "TOURNAMENT"]).default("NORMAL"),
-  sheetFormat: z.enum(["SHOTGUN", "TEE_TIMES"]),
+  // NORMAL / TEE_TIMES = staggered tee times; SHOTGUN = everyone starts together
+  sheetFormat: z.enum(["SHOTGUN", "TEE_TIMES", "NORMAL"]),
   formatLabel: z.string().max(80).optional(),
   sponsor: z.string().max(120).optional(),
   notes: z.string().max(2000).optional(),
 });
+
+function resolveFormat(
+  raw: string,
+): PlayingDayFormat {
+  if (raw === "SHOTGUN") return PlayingDayFormat.SHOTGUN;
+  return PlayingDayFormat.TEE_TIMES;
+}
 
 export async function previewSlots(formData: FormData): Promise<
   ActionResult & { times?: string[]; rows?: string[] }
@@ -42,12 +51,9 @@ export async function previewSlots(formData: FormData): Promise<
   await requireAdmin();
   const sheetFormat = String(formData.get("sheetFormat") ?? "TEE_TIMES");
   try {
-    if (sheetFormat === "SHOTGUN") {
-      const timesByTee: Record<number, string[]> = {};
-      for (let tee = 1; tee <= 9; tee++) {
-        timesByTee[tee] = parseTimeList(String(formData.get(`tee${tee}Times`) ?? ""));
-      }
-      const slots = generateShotgunSlotsFromTeeTimes(timesByTee);
+    if (resolveFormat(sheetFormat) === PlayingDayFormat.SHOTGUN) {
+      const start = String(formData.get("firstTeeTime") ?? "10:30");
+      const slots = generateDefaultShotgunSlots(start);
       return {
         ok: true,
         rows: slots.map((s) => `${s.startTime} · Tee ${s.teeNumber}`),
@@ -72,7 +78,7 @@ export async function createPlayingDay(
 ): Promise<ActionResult & { dayId?: string }> {
   const session = await requireAdmin();
   const parsed = baseDaySchema.safeParse({
-    title: formData.get("title"),
+    title: formData.get("title") || undefined,
     date: formData.get("date"),
     type: formData.get("type") || "NORMAL",
     sheetFormat: formData.get("sheetFormat") || "TEE_TIMES",
@@ -81,15 +87,13 @@ export async function createPlayingDay(
     notes: formData.get("notes") || undefined,
   });
   if (!parsed.success) {
-    return { ok: false, error: "Invalid day details." };
+    return { ok: false, error: "Invalid day details — check the date and format." };
   }
 
   const settings = await getClubSettings();
-  const date = new Date(`${parsed.data.date}T00:00:00.000Z`);
-  const format =
-    parsed.data.sheetFormat === "SHOTGUN"
-      ? PlayingDayFormat.SHOTGUN
-      : PlayingDayFormat.TEE_TIMES;
+  // Calendar day the admin picked (noon UTC anchor — see parseClubDateInput).
+  const date = parseClubDateInput(parsed.data.date);
+  const format = resolveFormat(parsed.data.sheetFormat);
 
   let firstTeeTime = "07:00";
   let lastTeeTime = "09:00";
@@ -98,13 +102,9 @@ export async function createPlayingDay(
 
   try {
     if (format === PlayingDayFormat.SHOTGUN) {
-      const timesByTee: Record<number, string[]> = {};
-      for (let tee = 1; tee <= 9; tee++) {
-        timesByTee[tee] = parseTimeList(String(formData.get(`tee${tee}Times`) ?? ""));
-      }
-      const slots = generateShotgunSlotsFromTeeTimes(timesByTee);
+      firstTeeTime = String(formData.get("firstTeeTime") ?? "10:30");
+      const slots = generateDefaultShotgunSlots(firstTeeTime);
       const mins = slots.map((s) => parseTimeToMinutes(s.startTime));
-      firstTeeTime = minutesToTime(Math.min(...mins));
       lastTeeTime = minutesToTime(Math.max(...mins));
       intervalMinutes = 10;
       slotCreates = slots.map((s) => ({
@@ -131,9 +131,15 @@ export async function createPlayingDay(
     };
   }
 
+  const dateTitle = formatClubDate(date, settings.timezone);
+  const title =
+    (parsed.data.title && parsed.data.title.trim() && parsed.data.title.trim() !== "Club day"
+      ? parsed.data.title.trim()
+      : dateTitle);
+
   const day = await prisma.playingDay.create({
     data: {
-      title: parsed.data.title,
+      title,
       date,
       type: parsed.data.type as PlayingDayType,
       format,
@@ -157,6 +163,7 @@ export async function createPlayingDay(
     entityId: day.id,
     metadata: {
       title: day.title,
+      date: parsed.data.date,
       format,
       slots: slotCreates.length,
     },

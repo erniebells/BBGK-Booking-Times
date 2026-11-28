@@ -1,8 +1,12 @@
 import { describe, expect, it } from "vitest";
 import {
+  formatClubDate,
+  formatClubDateInput,
+  generateDefaultShotgunSlots,
   generateShotgunSlotsFromTeeTimes,
   generateSlotTimes,
   generateTeeTimeSlots,
+  parseClubDateInput,
   parseTimeToMinutes,
 } from "./slots";
 
@@ -36,6 +40,27 @@ describe("generateTeeTimeSlots", () => {
       "07:10",
       "07:20",
     ]);
+  });
+});
+
+describe("parseClubDateInput / formatClubDate", () => {
+  it("keeps the chosen calendar day in Africa/Johannesburg", () => {
+    const d = parseClubDateInput("2026-12-15");
+    expect(formatClubDateInput(d, "Africa/Johannesburg")).toBe("2026-12-15");
+    expect(formatClubDate(d, "Africa/Johannesburg")).toMatch(/15/);
+    expect(formatClubDate(d, "Africa/Johannesburg")).toMatch(/December/i);
+  });
+});
+
+describe("generateDefaultShotgunSlots", () => {
+  it("uses 3 slots on Tee 1 and 2 on Tees 2–9 from one start", () => {
+    const slots = generateDefaultShotgunSlots("10:30");
+    expect(slots).toHaveLength(19);
+    expect(slots.filter((s) => s.teeNumber === 1)).toHaveLength(3);
+    for (let tee = 2; tee <= 9; tee++) {
+      expect(slots.filter((s) => s.teeNumber === tee)).toHaveLength(2);
+    }
+    expect(slots.filter((s) => s.startTime === "10:30")).toHaveLength(9);
   });
 });
 

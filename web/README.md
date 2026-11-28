@@ -27,8 +27,9 @@ Seed demo player: `member@demo.golf` / last 4 of seeded SA ID `8001015009087` �
 
 ### Admin create sheets
 
-- **Shotgun**: Date, Sponsor, Format=Shotgun, times-per-tee for tees 1–9. Grid: TIME \| TEE \| Player 1–4.
-- **Tee Times**: Date, Sponsor, Format=Tee Times, first start + slot count (10 min, Tee 1). Grid: TIME \| Player 1–4.
+- **Tee Times (normal)**: Date, Sponsor, first start + slot count (10 min, Tee 1). Grid: TIME \| Player 1–4.
+- **Shotgun**: Date, Sponsor, one shared start time. Auto slots: Tee 1×3 (start/+10/+20), Tees 2–9×2 (start/+10). Grid: TIME \| TEE \| Player 1–4.
+- Chosen **Date** is stored as a club calendar day (noon UTC anchor) so it displays as the same day after save.
 
 Players book **empty cells only**; admin can clear any name. Reset a player under Admin → Accounts.
 

@@ -9,19 +9,30 @@ import {
 } from "@prisma/client";
 import {
   combineDateAndTimeUtc,
-  generateShotgunSlotsFromTeeTimes,
+  formatClubDate,
+  generateDefaultShotgunSlots,
   generateTeeTimeSlots,
+  parseClubDateInput,
 } from "../src/lib/slots";
 import { hashSaId, saIdLastFour } from "../src/lib/sa-id";
 
 const prisma = new PrismaClient();
 
-function utcDateOnlyDaysFromNow(days: number): Date {
+function clubDateDaysFromNow(days: number): Date {
   const now = new Date();
-  const y = now.getUTCFullYear();
-  const m = now.getUTCMonth();
-  const d = now.getUTCDate();
-  return new Date(Date.UTC(y, m, d + days));
+  // Build YYYY-MM-DD in Africa/Johannesburg, then parse with noon-UTC anchor.
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Africa/Johannesburg",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(now);
+  const map: Record<string, string> = {};
+  for (const p of parts) {
+    if (p.type !== "literal") map[p.type] = p.value;
+  }
+  const base = parseClubDateInput(`${map.year}-${map.month}-${map.day}`);
+  return new Date(base.getTime() + days * 24 * 60 * 60 * 1000);
 }
 
 async function main() {
@@ -95,24 +106,13 @@ async function main() {
   const settings = await prisma.clubSettings.findUniqueOrThrow({ where: { id: 1 } });
 
   // Published shotgun day
-  const shotgunDate = utcDateOnlyDaysFromNow(2);
-  const shotgunTitle = "Demo Shotgun Day";
+  const shotgunDate = clubDateDaysFromNow(2);
+  const shotgunTitle = formatClubDate(shotgunDate, settings.timezone);
   let shotgun = await prisma.playingDay.findFirst({
-    where: { title: shotgunTitle, date: shotgunDate },
+    where: { date: shotgunDate, format: PlayingDayFormat.SHOTGUN },
   });
   if (!shotgun) {
-    const timesByTee: Record<number, string[]> = {
-      1: ["10:30", "10:40", "10:50"],
-      2: ["10:30", "10:40"],
-      3: ["10:30", "10:40"],
-      4: ["10:30", "10:40"],
-      5: ["10:30", "10:40"],
-      6: ["10:30", "10:40"],
-      7: ["10:30", "10:40"],
-      8: ["10:30", "10:40"],
-      9: ["10:30", "10:40"],
-    };
-    const slots = generateShotgunSlotsFromTeeTimes(timesByTee);
+    const slots = generateDefaultShotgunSlots("10:30");
     shotgun = await prisma.playingDay.create({
       data: {
         title: shotgunTitle,
@@ -121,7 +121,7 @@ async function main() {
         format: PlayingDayFormat.SHOTGUN,
         formatLabel: "Shotgun",
         sponsor: "Demo Sponsor",
-        notes: "Seeded shotgun sheet — 9 tees, variable times per tee.",
+        notes: "Seeded shotgun — Tee 1×3, Tees 2–9×2 from one start.",
         firstTeeTime: "10:30",
         lastTeeTime: "10:50",
         intervalMinutes: 10,
@@ -143,10 +143,10 @@ async function main() {
   }
 
   // Published tee-times day
-  const teeDate = utcDateOnlyDaysFromNow(3);
-  const teeTitle = "Demo Tee Times Day";
+  const teeDate = clubDateDaysFromNow(3);
+  const teeTitle = formatClubDate(teeDate, settings.timezone);
   let teeDay = await prisma.playingDay.findFirst({
-    where: { title: teeTitle, date: teeDate },
+    where: { date: teeDate, format: PlayingDayFormat.TEE_TIMES },
   });
   if (!teeDay) {
     const times = generateTeeTimeSlots("07:00", 10, 10);

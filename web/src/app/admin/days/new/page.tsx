@@ -4,24 +4,13 @@ import { useActionState, useState } from "react";
 import { createPlayingDay, previewSlots } from "@/actions/admin";
 import { FormMessage } from "@/components/ActionForm";
 
-const DEFAULT_TEE_TIMES: Record<number, string> = {
-  1: "10:30, 10:40, 10:50",
-  2: "10:30, 10:40",
-  3: "10:30, 10:40",
-  4: "10:30, 10:40",
-  5: "10:30, 10:40",
-  6: "10:30, 10:40",
-  7: "10:30, 10:40",
-  8: "10:30, 10:40",
-  9: "10:30, 10:40",
-};
-
 export default function NewPlayingDayPage() {
   const [createState, createAction, creating] = useActionState(
     createPlayingDay,
     null,
   );
-  const [format, setFormat] = useState<"SHOTGUN" | "TEE_TIMES">("SHOTGUN");
+  // Normal = tee times; other = shotgun (same start for everyone).
+  const [format, setFormat] = useState<"TEE_TIMES" | "SHOTGUN">("TEE_TIMES");
   const [preview, setPreview] = useState<string[] | null>(null);
   const [previewError, setPreviewError] = useState<string | null>(null);
 
@@ -42,8 +31,8 @@ export default function NewPlayingDayPage() {
       <form action={createAction} className="card-stack">
         <FormMessage result={createState} />
         <label>
-          Title
-          <input name="title" required defaultValue="Club day" />
+          Title (optional — defaults to the date)
+          <input name="title" placeholder="Leave blank to use the date" />
         </label>
         <label>
           Date
@@ -59,17 +48,18 @@ export default function NewPlayingDayPage() {
             name="sheetFormat"
             value={format}
             onChange={(e) =>
-              setFormat(e.target.value as "SHOTGUN" | "TEE_TIMES")
+              setFormat(e.target.value as "TEE_TIMES" | "SHOTGUN")
             }
           >
+            <option value="TEE_TIMES">Tee Times (normal)</option>
             <option value="SHOTGUN">Shotgun</option>
-            <option value="TEE_TIMES">Tee Times</option>
           </select>
         </label>
         <label>
           Format label
           <input
             name="formatLabel"
+            key={format}
             defaultValue={format === "SHOTGUN" ? "Shotgun" : "Tee Times"}
           />
         </label>
@@ -97,30 +87,17 @@ export default function NewPlayingDayPage() {
             </label>
           </div>
         ) : (
-          <fieldset className="grid gap-3 rounded-xl border border-emerald-900/15 p-4">
-            <legend className="px-1 font-semibold">
-              Times per tee (tees 1–9)
-            </legend>
+          <div className="grid gap-3">
+            <label>
+              Start time (everyone starts together)
+              <input name="firstTeeTime" required defaultValue="10:30" />
+            </label>
             <p className="text-sm text-emerald-950/70">
-              Comma-separated HH:MM for each tee. Example: Tee 1 has three
-              times; Tee 2 has two.
+              Shotgun builds automatically: <strong>3 slots on Tee 1</strong>{" "}
+              (start, +10, +20) and <strong>2 slots on Tees 2–9</strong> (start,
+              +10). No per-tee counts to enter.
             </p>
-            <div className="grid gap-2 sm:grid-cols-3">
-              {Array.from({ length: 9 }, (_, i) => {
-                const tee = i + 1;
-                return (
-                  <label key={tee}>
-                    Tee {tee}
-                    <input
-                      name={`tee${tee}Times`}
-                      defaultValue={DEFAULT_TEE_TIMES[tee]}
-                      placeholder="10:30, 10:40"
-                    />
-                  </label>
-                );
-              })}
-            </div>
-          </fieldset>
+          </div>
         )}
 
         <div className="flex flex-wrap gap-2">

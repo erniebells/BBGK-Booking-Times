@@ -135,6 +135,38 @@ export function formatClubDate(date: Date, timeZone = CLUB_TZ): string {
   }).format(date);
 }
 
+/**
+ * Parse an HTML date input (YYYY-MM-DD) as a club calendar day.
+ * Stored as noon UTC so formatClubDate in Africa/Johannesburg (and most zones)
+ * always shows the same calendar day the admin picked — avoids "date didn't stick"
+ * off-by-one from UTC-midnight + local TZ formatting.
+ */
+export function parseClubDateInput(yyyyMmDd: string): Date {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(yyyyMmDd.trim());
+  if (!match) {
+    throw new Error(`Invalid date "${yyyyMmDd}". Use YYYY-MM-DD.`);
+  }
+  const y = Number(match[1]);
+  const m = Number(match[2]);
+  const d = Number(match[3]);
+  return new Date(Date.UTC(y, m - 1, d, 12, 0, 0));
+}
+
+/** YYYY-MM-DD of a stored playing-day date in the club timezone. */
+export function formatClubDateInput(date: Date, timeZone = CLUB_TZ): string {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(date);
+  const map: Record<string, string> = {};
+  for (const p of parts) {
+    if (p.type !== "literal") map[p.type] = p.value;
+  }
+  return `${map.year}-${map.month}-${map.day}`;
+}
+
 /** One shotgun row: a single (time, tee) group with 4 player places. */
 export interface ShotgunSlotSpec {
   teeNumber: number;
@@ -142,8 +174,32 @@ export interface ShotgunSlotSpec {
 }
 
 /**
+ * Classic shotgun from one shared start time:
+ * - Tee 1: 3 slots (start, +10, +20)
+ * - Tees 2–9: 2 slots each (start, +10)
+ * Everyone's first wave starts together.
+ */
+export function generateDefaultShotgunSlots(startTime: string): ShotgunSlotSpec[] {
+  const start = parseTimeToMinutes(startTime);
+  const slots: ShotgunSlotSpec[] = [];
+  for (let wave = 0; wave < 3; wave++) {
+    const t = minutesToTime(start + wave * 10);
+    const maxTee = wave === 2 ? 1 : 9;
+    for (let tee = 1; tee <= maxTee; tee++) {
+      slots.push({ teeNumber: tee, startTime: t });
+    }
+  }
+  return slots.sort((a, b) => {
+    const ta = parseTimeToMinutes(a.startTime);
+    const tb = parseTimeToMinutes(b.startTime);
+    if (ta !== tb) return ta - tb;
+    return a.teeNumber - b.teeNumber;
+  });
+}
+
+/**
  * Build shotgun slots from per-tee time lists (tees 1..9).
- * Each tee may have a different number of times.
+ * Kept for admin tools / tests; create form uses generateDefaultShotgunSlots.
  */
 export function generateShotgunSlotsFromTeeTimes(
   timesByTee: Record<number, string[]>,
