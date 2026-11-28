@@ -2,6 +2,8 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { adminResetPlayerProfile } from "@/actions/auth";
+import { maskIdLastFour } from "@/lib/sa-id";
 
 export default async function AdminAccountsPage({
   searchParams,
@@ -42,10 +44,32 @@ export default async function AdminAccountsPage({
         {users.map((u) => (
           <li
             key={u.id}
-            className="rounded-lg border border-emerald-900/10 bg-white/80 px-3 py-2"
+            className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-emerald-900/10 bg-white/80 px-3 py-2"
           >
-            <span className="font-semibold">{u.name}</span> · {u.email} · {u.role}{" "}
-            · {u.status}
+            <div>
+              <span className="font-semibold">{u.name}</span> · {u.email} ·{" "}
+              {u.role} · {u.status}
+              {u.role !== "ADMIN" && (
+                <span className="block text-xs text-emerald-900/55">
+                  Profile {u.profileComplete ? "complete" : "incomplete"}
+                  {u.idLastFour
+                    ? ` · ID ${maskIdLastFour(u.idLastFour)}`
+                    : ""}
+                </span>
+              )}
+            </div>
+            {u.role !== "ADMIN" && (
+              <form
+                action={async () => {
+                  "use server";
+                  await adminResetPlayerProfile(u.id);
+                }}
+              >
+                <button type="submit" className="btn btn-secondary text-xs">
+                  Reset to club password
+                </button>
+              </form>
+            )}
           </li>
         ))}
       </ul>

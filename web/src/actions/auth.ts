@@ -4,181 +4,24 @@ import { hash } from "bcryptjs";
 import { AuthError } from "next-auth";
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
-import { signIn, signOut } from "@/lib/auth";
+import { auth, signIn, signOut } from "@/lib/auth";
 import { consumeRateLimit } from "@/lib/rate-limit";
-import { generateOtpCode, hashOtp, sendVerificationEmail } from "@/lib/email";
 import { writeAudit } from "@/lib/audit";
+import { hashSaId, isValidSaId, saIdLastFour } from "@/lib/sa-id";
 import { AccountStatus, Role } from "@prisma/client";
 import { redirect } from "next/navigation";
-
-const registerSchema = z.object({
-  name: z.string().min(2).max(80),
-  email: z.string().email(),
-  phone: z.string().max(30).optional(),
-  password: z.string().min(8).max(100),
-});
+import { revalidatePath } from "next/cache";
 
 export type ActionResult = { ok: true; message?: string } | { ok: false; error: string };
 
-export async function registerGuest(
-  _prev: ActionResult | null,
-  formData: FormData,
-): Promise<ActionResult> {
-  const parsed = registerSchema.safeParse({
-    name: formData.get("name"),
-    email: formData.get("email"),
-    phone: formData.get("phone") || undefined,
-    password: formData.get("password"),
-  });
-  if (!parsed.success) {
-    return { ok: false, error: "Check your details and try again." };
-  }
-
-  const email = parsed.data.email.toLowerCase().trim();
-  const rl = await consumeRateLimit(`register:${email}`, 5, 15 * 60 * 1000);
-  if (!rl.ok) {
-    return { ok: false, error: `Too many attempts. Try again in ${rl.retryAfterSec}s.` };
-  }
-
-  const existing = await prisma.user.findUnique({ where: { email } });
-  if (existing) {
-    return { ok: false, error: "An account with that email already exists." };
-  }
-
-  const passwordHash = await hash(parsed.data.password, 12);
-  const user = await prisma.user.create({
-    data: {
-      name: parsed.data.name.trim(),
-      email,
-      phone: parsed.data.phone?.trim() || null,
-      passwordHash,
-      role: Role.GUEST,
-      status: AccountStatus.PENDING_APPROVAL,
-    },
-  });
-
-  const code = generateOtpCode();
-  await prisma.verificationToken.create({
-    data: {
-      userId: user.id,
-      codeHash: hashOtp(code),
-      expiresAt: new Date(Date.now() + 30 * 60 * 1000),
-    },
-  });
-
-  try {
-    await sendVerificationEmail(email, code);
-  } catch (e) {
-    return {
-      ok: false,
-      error: e instanceof Error ? e.message : "Could not send verification email.",
-    };
-  }
-
-  await writeAudit({
-    actorId: user.id,
-    action: "guest.register",
-    entityType: "User",
-    entityId: user.id,
-  });
-
-  redirect(`/verify?email=${encodeURIComponent(email)}`);
+/** Guest registration removed — players use shared password + profile. */
+export async function registerGuest(): Promise<ActionResult> {
+  return {
+    ok: false,
+    error: "Guest registration is closed. Sign in with the club password, then complete My Details.",
+  };
 }
 
-export async function verifyEmail(
-  _prev: ActionResult | null,
-  formData: FormData,
-): Promise<ActionResult> {
-  const email = String(formData.get("email") ?? "")
-    .toLowerCase()
-    .trim();
-  const code = String(formData.get("code") ?? "").trim();
-  if (!email || !/^\d{6}$/.test(code)) {
-    return { ok: false, error: "Enter your email and the 6-digit code." };
-  }
-
-  const rl = await consumeRateLimit(`verify:${email}`, 10, 15 * 60 * 1000);
-  if (!rl.ok) {
-    return { ok: false, error: `Too many attempts. Try again in ${rl.retryAfterSec}s.` };
-  }
-
-  const user = await prisma.user.findUnique({ where: { email } });
-  if (!user) return { ok: false, error: "Account not found." };
-  if (user.emailVerifiedAt) {
-    return { ok: true, message: "Email already verified." };
-  }
-
-  const token = await prisma.verificationToken.findFirst({
-    where: {
-      userId: user.id,
-      usedAt: null,
-      expiresAt: { gt: new Date() },
-    },
-    orderBy: { createdAt: "desc" },
-  });
-  if (!token || token.codeHash !== hashOtp(code)) {
-    return { ok: false, error: "Invalid or expired code." };
-  }
-
-  await prisma.$transaction([
-    prisma.verificationToken.update({
-      where: { id: token.id },
-      data: { usedAt: new Date() },
-    }),
-    prisma.user.update({
-      where: { id: user.id },
-      data: { emailVerifiedAt: new Date() },
-    }),
-  ]);
-
-  await writeAudit({
-    actorId: user.id,
-    action: "guest.verify_email",
-    entityType: "User",
-    entityId: user.id,
-  });
-
-  return { ok: true, message: "Email verified. Await club approval before booking." };
-}
-
-export async function resendVerification(
-  _prev: ActionResult | null,
-  formData: FormData,
-): Promise<ActionResult> {
-  const email = String(formData.get("email") ?? "")
-    .toLowerCase()
-    .trim();
-  if (!email) return { ok: false, error: "Email required." };
-
-  const rl = await consumeRateLimit(`resend:${email}`, 3, 15 * 60 * 1000);
-  if (!rl.ok) {
-    return { ok: false, error: `Too many attempts. Try again in ${rl.retryAfterSec}s.` };
-  }
-
-  const user = await prisma.user.findUnique({ where: { email } });
-  if (!user) return { ok: false, error: "Account not found." };
-  if (user.emailVerifiedAt) return { ok: true, message: "Already verified." };
-
-  const code = generateOtpCode();
-  await prisma.verificationToken.create({
-    data: {
-      userId: user.id,
-      codeHash: hashOtp(code),
-      expiresAt: new Date(Date.now() + 30 * 60 * 1000),
-    },
-  });
-  try {
-    await sendVerificationEmail(email, code);
-  } catch (e) {
-    return {
-      ok: false,
-      error: e instanceof Error ? e.message : "Could not send email.",
-    };
-  }
-  return { ok: true, message: "A new code was sent." };
-}
-
-/** Only allow same-origin relative paths for post-login navigation. */
 function safeInternalPath(raw: string): string {
   if (!raw.startsWith("/") || raw.startsWith("//") || raw.includes("://")) {
     return "/";
@@ -188,8 +31,6 @@ function safeInternalPath(raw: string): string {
 
 function isCredentialsFailure(error: unknown): boolean {
   if (!error || typeof error !== "object") return false;
-  // Prefer instanceof, but also match by `type` when duplicate @auth/core
-  // copies break the prototype chain across next-auth / adapters.
   if (error instanceof AuthError) return true;
   const type = "type" in error ? String((error as { type?: unknown }).type ?? "") : "";
   return type === "CredentialsSignin" || type === "CallbackRouteError";
@@ -217,38 +58,246 @@ export async function loginAction(
     .toLowerCase()
     .trim();
   const password = String(formData.get("password") ?? "");
-  const redirectTo = safeInternalPath(
-    String(formData.get("callbackUrl") ?? formData.get("redirectTo") ?? "/"),
+  const rememberMe = String(formData.get("rememberMe") ?? "") === "on";
+  const requestedRedirect = safeInternalPath(
+    String(formData.get("callbackUrl") ?? formData.get("redirectTo") ?? ""),
   );
 
-  const rl = await consumeRateLimit(`login:${email || "unknown"}`, 20, 15 * 60 * 1000);
+  const rl = await consumeRateLimit(
+    `login:${email || password.slice(0, 8) || "unknown"}`,
+    20,
+    15 * 60 * 1000,
+  );
   if (!rl.ok) {
     return { ok: false, error: `Too many attempts. Try again in ${rl.retryAfterSec}s.` };
   }
 
-  // Use redirect:false so Auth.js does not throw NEXT_REDIRECT itself.
-  // useActionState + absolute Location URLs (e.g. http://0.0.0.0:3000/) can
-  // leave the login UI stuck with no transition; we navigate via next/navigation.
+  // Resolve destination WITHOUT calling auth() in this same request —
+  // the new session cookie is often not visible to auth() until the next request.
+  const { authenticateCredentials } = await import("@/lib/authenticate");
+  const identified = await authenticateCredentials(email, password);
+  if (!identified) {
+    return {
+      ok: false,
+      error:
+        "Invalid email or password. Admin: email admin@demo.golf + ADMIN_PASSWORD from web/.env (then restart). Player first visit: club password only. After My Details: email + last 4 of SA ID.",
+    };
+  }
+
   try {
     const result = await signIn("credentials", {
       email,
       password,
+      rememberMe: rememberMe ? "1" : "",
       redirect: false,
-      redirectTo,
+      redirectTo:
+        identified.role === "ADMIN"
+          ? "/admin"
+          : identified.provisional || !identified.profileComplete
+            ? "/account/details"
+            : requestedRedirect || "/days",
     });
     if (isFailedSignInResult(result)) {
-      return { ok: false, error: "Invalid email or password." };
+      return {
+        ok: false,
+        error:
+          "Sign-in failed after password check. If you use http://localhost, ensure AUTH_URL=http://localhost:3000 (not https) so the session cookie is not Secure-only.",
+      };
     }
   } catch (e) {
     if (isCredentialsFailure(e)) {
-      return { ok: false, error: "Invalid email or password." };
+      return {
+        ok: false,
+        error:
+          "Sign-in failed. Check ADMIN_PASSWORD / INITIAL_MEMBER_PASSWORD in web/.env and restart the app.",
+      };
     }
     throw e;
   }
 
-  redirect(redirectTo);
+  if (identified.role === "ADMIN") {
+    redirect(
+      requestedRedirect && requestedRedirect.startsWith("/admin")
+        ? requestedRedirect
+        : "/admin",
+    );
+  }
+  if (identified.provisional || !identified.profileComplete) {
+    redirect("/account/details");
+  }
+  redirect(requestedRedirect || "/days");
 }
 
 export async function logoutAction() {
-  await signOut({ redirectTo: "/" });
+  await signOut({ redirectTo: "/login" });
+}
+
+const profileSchema = z.object({
+  name: z.string().min(2).max(80),
+  email: z.string().email(),
+  whatsapp: z.string().min(9).max(30),
+  idNumber: z.string().regex(/^\d{13}$/, "SA ID must be 13 digits"),
+});
+
+/**
+ * Complete My Details after shared-password login.
+ * Sets password to last 4 of SA ID; stores only ID hash + last four for display.
+ */
+export async function completeProfileAction(
+  _prev: ActionResult | null,
+  formData: FormData,
+): Promise<ActionResult> {
+  const session = await auth();
+  if (!session?.user) return { ok: false, error: "Sign in first." };
+
+  const parsed = profileSchema.safeParse({
+    name: formData.get("name"),
+    email: formData.get("email"),
+    whatsapp: formData.get("whatsapp"),
+    idNumber: formData.get("idNumber"),
+  });
+  if (!parsed.success) {
+    return {
+      ok: false,
+      error: "Enter playing name, email, WhatsApp, and a 13-digit SA ID.",
+    };
+  }
+
+  const email = parsed.data.email.toLowerCase().trim();
+  const idNumber = parsed.data.idNumber.trim();
+  if (!isValidSaId(idNumber)) {
+    return { ok: false, error: "SA ID must be 13 digits." };
+  }
+  const lastFour = saIdLastFour(idNumber);
+  const idNumberHash = hashSaId(idNumber);
+  const passwordHash = await hash(lastFour, 12);
+
+  const rl = await consumeRateLimit(`profile:${email}`, 10, 15 * 60 * 1000);
+  if (!rl.ok) {
+    return { ok: false, error: `Too many attempts. Try again in ${rl.retryAfterSec}s.` };
+  }
+
+  const existing = await prisma.user.findUnique({ where: { email } });
+  if (existing && existing.role === Role.ADMIN) {
+    return { ok: false, error: "That email belongs to an administrator." };
+  }
+  if (
+    existing &&
+    !session.user.provisional &&
+    existing.id !== session.user.id
+  ) {
+    return { ok: false, error: "An account with that email already exists." };
+  }
+
+  let userId: string;
+  if (session.user.provisional || session.user.id === "provisional-viewer") {
+    if (existing) {
+      // Re-activating after admin reset, or reclaiming email after shared login.
+      const user = await prisma.user.update({
+        where: { id: existing.id },
+        data: {
+          name: parsed.data.name.trim(),
+          whatsapp: parsed.data.whatsapp.trim(),
+          phone: parsed.data.whatsapp.trim(),
+          passwordHash,
+          idNumberHash,
+          idLastFour: lastFour,
+          profileComplete: true,
+          role: Role.MEMBER,
+          status: AccountStatus.ACTIVE,
+          emailVerifiedAt: new Date(),
+        },
+      });
+      userId = user.id;
+    } else {
+      const user = await prisma.user.create({
+        data: {
+          email,
+          name: parsed.data.name.trim(),
+          whatsapp: parsed.data.whatsapp.trim(),
+          phone: parsed.data.whatsapp.trim(),
+          passwordHash,
+          idNumberHash,
+          idLastFour: lastFour,
+          profileComplete: true,
+          role: Role.MEMBER,
+          status: AccountStatus.ACTIVE,
+          emailVerifiedAt: new Date(),
+        },
+      });
+      userId = user.id;
+    }
+  } else {
+    const user = await prisma.user.update({
+      where: { id: session.user.id },
+      data: {
+        email,
+        name: parsed.data.name.trim(),
+        whatsapp: parsed.data.whatsapp.trim(),
+        phone: parsed.data.whatsapp.trim(),
+        passwordHash,
+        idNumberHash,
+        idLastFour: lastFour,
+        profileComplete: true,
+        status: AccountStatus.ACTIVE,
+        emailVerifiedAt: new Date(),
+      },
+    });
+    userId = user.id;
+  }
+
+  await writeAudit({
+    actorId: userId,
+    action: "player.profile_complete",
+    entityType: "User",
+    entityId: userId,
+    metadata: { idLastFour: lastFour },
+  });
+
+  // Re-sign in as the real user with last-4 password.
+  await signIn("credentials", {
+    email,
+    password: lastFour,
+    redirect: false,
+  });
+
+  revalidatePath("/");
+  redirect("/days");
+}
+
+/** Admin: reset player so they must use shared password and complete profile again. */
+export async function adminResetPlayerProfile(userId: string): Promise<ActionResult> {
+  const session = await auth();
+  if (!session?.user || session.user.role !== "ADMIN") {
+    return { ok: false, error: "Admin only." };
+  }
+  const initial = process.env.INITIAL_MEMBER_PASSWORD?.trim();
+  if (!initial) {
+    return { ok: false, error: "INITIAL_MEMBER_PASSWORD is not set." };
+  }
+  const user = await prisma.user.findUnique({ where: { id: userId } });
+  if (!user || user.role === "ADMIN") {
+    return { ok: false, error: "Player not found." };
+  }
+  const passwordHash = await hash(initial, 12);
+  await prisma.user.update({
+    where: { id: userId },
+    data: {
+      passwordHash,
+      profileComplete: false,
+      idNumberHash: null,
+      idLastFour: null,
+    },
+  });
+  await writeAudit({
+    actorId: session.user.id,
+    action: "player.profile_reset",
+    entityType: "User",
+    entityId: userId,
+  });
+  revalidatePath("/admin/accounts");
+  return {
+    ok: true,
+    message: "Player reset — they must sign in with the club password and complete My Details.",
+  };
 }

@@ -1,4 +1,5 @@
 import { createHash, randomInt } from "crypto";
+import { sendSmtpEmail } from "./notify";
 
 export function generateOtpCode(): string {
   return String(randomInt(100000, 999999));
@@ -9,9 +10,14 @@ export function hashOtp(code: string): string {
 }
 
 export async function sendVerificationEmail(to: string, code: string) {
-  const host = process.env.SMTP_HOST;
-  if (!host) {
-    if (process.env.NODE_ENV === "production") {
+  const result = await sendSmtpEmail({
+    to,
+    subject: "Your verification code",
+    text: `Your verification code is ${code}. It expires shortly.`,
+  });
+
+  if (result.mode === "console") {
+    if (process.env.NODE_ENV === "production" && !process.env.SMTP_HOST?.trim()) {
       throw new Error(
         "SMTP is not configured. Refusing to deliver verification codes in production.",
       );
@@ -20,8 +26,9 @@ export async function sendVerificationEmail(to: string, code: string) {
     return { mode: "console" as const };
   }
 
-  // Minimal SMTP via nodemailer is optional; without the package, fail clearly.
-  throw new Error(
-    "SMTP_HOST is set but SMTP delivery is not wired in this MVP. Unset SMTP_HOST to use console OTP in development.",
-  );
+  if (result.mode === "error" || result.mode === "skipped") {
+    throw new Error(result.detail);
+  }
+
+  return { mode: "sent" as const };
 }

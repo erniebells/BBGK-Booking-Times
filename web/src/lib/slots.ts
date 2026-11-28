@@ -128,9 +128,140 @@ export function formatClubTime(date: Date, timeZone = CLUB_TZ): string {
   }).format(date);
 }
 
+/** HH:MM wall clock in club TZ (stable for cloning / combineDateAndTimeUtc). */
+export function formatClubTimeHhMm(date: Date, timeZone = CLUB_TZ): string {
+  const parts = new Intl.DateTimeFormat("en-GB", {
+    timeZone,
+    hour: "2-digit",
+    minute: "2-digit",
+    hourCycle: "h23",
+  }).formatToParts(date);
+  const map: Record<string, string> = {};
+  for (const p of parts) {
+    if (p.type !== "literal") map[p.type] = p.value;
+  }
+  return `${map.hour}:${map.minute}`;
+}
+
 export function formatClubDate(date: Date, timeZone = CLUB_TZ): string {
   return new Intl.DateTimeFormat("en-ZA", {
     timeZone,
     dateStyle: "full",
   }).format(date);
+}
+
+/**
+ * Parse an HTML date input (YYYY-MM-DD) as a club calendar day.
+ * Stored as noon UTC so formatClubDate in Africa/Johannesburg (and most zones)
+ * always shows the same calendar day the admin picked — avoids "date didn't stick"
+ * off-by-one from UTC-midnight + local TZ formatting.
+ */
+export function parseClubDateInput(yyyyMmDd: string): Date {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(yyyyMmDd.trim());
+  if (!match) {
+    throw new Error(`Invalid date "${yyyyMmDd}". Use YYYY-MM-DD.`);
+  }
+  const y = Number(match[1]);
+  const m = Number(match[2]);
+  const d = Number(match[3]);
+  return new Date(Date.UTC(y, m - 1, d, 12, 0, 0));
+}
+
+/** YYYY-MM-DD of a stored playing-day date in the club timezone. */
+export function formatClubDateInput(date: Date, timeZone = CLUB_TZ): string {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(date);
+  const map: Record<string, string> = {};
+  for (const p of parts) {
+    if (p.type !== "literal") map[p.type] = p.value;
+  }
+  return `${map.year}-${map.month}-${map.day}`;
+}
+
+/** One shotgun row: a single (time, tee) group with 4 player places. */
+export interface ShotgunSlotSpec {
+  teeNumber: number;
+  startTime: string;
+}
+
+/**
+ * Classic shotgun from one shared start time:
+ * - Tee 1: 3 slots (start, +10, +20)
+ * - Tees 2–9: 2 slots each (start, +10)
+ * Rows ordered by tee, then time (Tee 1's three times, then Tee 2, …).
+ */
+export function generateDefaultShotgunSlots(startTime: string): ShotgunSlotSpec[] {
+  const start = parseTimeToMinutes(startTime);
+  const slots: ShotgunSlotSpec[] = [];
+  for (let tee = 1; tee <= 9; tee++) {
+    const waves = tee === 1 ? 3 : 2;
+    for (let wave = 0; wave < waves; wave++) {
+      slots.push({
+        teeNumber: tee,
+        startTime: minutesToTime(start + wave * 10),
+      });
+    }
+  }
+  return slots;
+}
+
+/**
+ * Build shotgun slots from per-tee time lists (tees 1..9).
+ * Kept for admin tools / tests; create form uses generateDefaultShotgunSlots.
+ */
+export function generateShotgunSlotsFromTeeTimes(
+  timesByTee: Record<number, string[]>,
+): ShotgunSlotSpec[] {
+  const slots: ShotgunSlotSpec[] = [];
+  for (let tee = 1; tee <= 9; tee++) {
+    const times = timesByTee[tee] ?? [];
+    const seen = new Set<string>();
+    for (const raw of times) {
+      const t = raw.trim();
+      if (!t) continue;
+      parseTimeToMinutes(t);
+      if (seen.has(t)) {
+        throw new Error(`Duplicate time ${t} on Tee ${tee}.`);
+      }
+      seen.add(t);
+      slots.push({ teeNumber: tee, startTime: t });
+    }
+  }
+  if (slots.length === 0) {
+    throw new Error("Add at least one tee time on one of the 9 tees.");
+  }
+  // Tee then time — matches shotgun sheet display / create order.
+  return slots.sort((a, b) => {
+    if (a.teeNumber !== b.teeNumber) return a.teeNumber - b.teeNumber;
+    return parseTimeToMinutes(a.startTime) - parseTimeToMinutes(b.startTime);
+  });
+}
+
+/** Parse a comma / newline / space separated list of HH:MM times. */
+export function parseTimeList(raw: string): string[] {
+  return raw
+    .split(/[\s,;]+/)
+    .map((t) => t.trim())
+    .filter(Boolean);
+}
+
+/** Tee-times format: N slots from first start at 10-minute interval, all Tee 1. */
+export function generateTeeTimeSlots(
+  firstTeeTime: string,
+  slotCount: number,
+  intervalMinutes = 10,
+): string[] {
+  if (!Number.isInteger(slotCount) || slotCount < 1 || slotCount > 80) {
+    throw new Error("Number of slots must be between 1 and 80.");
+  }
+  const start = parseTimeToMinutes(firstTeeTime);
+  const times: string[] = [];
+  for (let i = 0; i < slotCount; i++) {
+    times.push(minutesToTime(start + i * intervalMinutes));
+  }
+  return times;
 }

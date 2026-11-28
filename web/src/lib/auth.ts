@@ -1,15 +1,21 @@
 import NextAuth from "next-auth";
 import Credentials from "next-auth/providers/credentials";
-import { compare } from "bcryptjs";
 import { z } from "zod";
 import { prisma } from "./prisma";
 import type { Role, AccountStatus } from "@prisma/client";
+import { authenticateCredentials } from "./authenticate";
+import { PROVISIONAL_USER_ID } from "./auth-constants";
+import { getAdminPassword, secureAuthCookiesEnabled } from "./passwords";
+
+export { PROVISIONAL_USER_ID } from "./auth-constants";
 
 declare module "next-auth" {
   interface User {
     role: Role;
     status: AccountStatus;
-    emailVerifiedAt: Date | null;
+    emailVerifiedAt: Date | string | null;
+    profileComplete: boolean;
+    provisional?: boolean;
   }
   interface Session {
     user: {
@@ -19,6 +25,8 @@ declare module "next-auth" {
       role: Role;
       status: AccountStatus;
       emailVerifiedAt: Date | null;
+      profileComplete: boolean;
+      provisional: boolean;
     };
   }
 }
@@ -29,32 +37,54 @@ declare module "next-auth/jwt" {
     role: Role;
     status: AccountStatus;
     emailVerifiedAt: string | null;
+    profileComplete: boolean;
+    provisional: boolean;
   }
 }
 
 const credentialsSchema = z.object({
-  email: z.string().email(),
+  email: z.union([z.string(), z.undefined(), z.null()]).optional(),
   password: z.string().min(1),
+  rememberMe: z.union([z.string(), z.undefined(), z.null()]).optional(),
 });
 
 const authSecret = process.env.AUTH_SECRET;
 if (!authSecret) {
   console.error(
-    "[auth] AUTH_SECRET is unset. Set it in web/.env (compose loads via env_file). JWT sessions will fail.",
+    "[auth] AUTH_SECRET is unset. Set it in web/.env (compose loads via env_file).",
   );
 }
 
+const secureCookies = secureAuthCookiesEnabled();
+console.info(
+  `[auth] secureCookies=${secureCookies} ADMIN_PASSWORD_set=${Boolean(getAdminPassword())} AUTH_URL=${process.env.AUTH_URL ?? "(unset)"}`,
+);
+
+function toIso(value: unknown): string | null {
+  if (value == null || value === "") return null;
+  if (value instanceof Date) return value.toISOString();
+  if (typeof value === "string") return value;
+  return null;
+}
+
 export const { handlers, auth, signIn, signOut } = NextAuth({
-  // AUTH_TRUST_HOST / AUTH_URL from env; trustHost avoids absolute redirect
-  // issues when the app is reached via Docker or a non-localhost host.
   trustHost: true,
-  // Explicit secret so Edge middleware (getToken) and Node auth() always match.
-  // Changing AUTH_SECRET invalidates cookies → JWTSessionError until browser clears them.
   secret: authSecret,
+  // Critical: NODE_ENV=production alone must not force Secure cookies on http://localhost.
+  useSecureCookies: secureCookies,
   session: {
     strategy: "jwt",
-    // Default Auth.js JWT lifetime; "remember me" can extend via maxAge on sign-in later.
     maxAge: 30 * 24 * 60 * 60,
+  },
+  cookies: {
+    sessionToken: {
+      options: {
+        httpOnly: true,
+        sameSite: "lax",
+        path: "/",
+        secure: secureCookies,
+      },
+    },
   },
   pages: {
     signIn: "/login",
@@ -65,23 +95,25 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
       credentials: {
         email: { label: "Email", type: "email" },
         password: { label: "Password", type: "password" },
+        rememberMe: { label: "Remember me", type: "text" },
       },
       async authorize(raw) {
         const parsed = credentialsSchema.safeParse(raw);
         if (!parsed.success) return null;
-        const email = parsed.data.email.toLowerCase().trim();
-        const user = await prisma.user.findUnique({ where: { email } });
+        const email = String(parsed.data.email ?? "");
+        const password = String(parsed.data.password ?? "");
+        const user = await authenticateCredentials(email, password);
         if (!user) return null;
-        const valid = await compare(parsed.data.password, user.passwordHash);
-        if (!valid) return null;
-        if (user.status === "DISABLED") return null;
         return {
           id: user.id,
           email: user.email,
           name: user.name,
           role: user.role,
           status: user.status,
-          emailVerifiedAt: user.emailVerifiedAt,
+          // Pass ISO string — Date objects can break jwt callback across serializations.
+          emailVerifiedAt: toIso(user.emailVerifiedAt),
+          profileComplete: user.profileComplete,
+          provisional: user.provisional,
         };
       },
     }),
@@ -92,19 +124,21 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         token.id = user.id!;
         token.role = user.role;
         token.status = user.status;
-        token.emailVerifiedAt = user.emailVerifiedAt
-          ? user.emailVerifiedAt.toISOString()
-          : null;
-      } else if (trigger === "update" && token.id) {
+        token.emailVerifiedAt = toIso(user.emailVerifiedAt);
+        token.profileComplete = !!user.profileComplete;
+        token.provisional = !!user.provisional;
+        token.name = user.name;
+        token.email = user.email ?? "";
+      } else if (trigger === "update" && token.id && token.id !== PROVISIONAL_USER_ID) {
         const fresh = await prisma.user.findUnique({ where: { id: token.id } });
         if (fresh) {
           token.role = fresh.role;
           token.status = fresh.status;
-          token.emailVerifiedAt = fresh.emailVerifiedAt
-            ? fresh.emailVerifiedAt.toISOString()
-            : null;
+          token.emailVerifiedAt = toIso(fresh.emailVerifiedAt);
           token.name = fresh.name;
           token.email = fresh.email;
+          token.profileComplete = fresh.profileComplete;
+          token.provisional = false;
         }
       }
       return token;
@@ -112,13 +146,15 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
     async session({ session, token }) {
       if (session.user) {
         session.user.id = token.id;
-        session.user.email = token.email as string;
+        session.user.email = (token.email as string) ?? "";
         session.user.name = (token.name as string) ?? "";
         session.user.role = token.role;
         session.user.status = token.status;
         session.user.emailVerifiedAt = token.emailVerifiedAt
           ? new Date(token.emailVerifiedAt)
           : null;
+        session.user.profileComplete = !!token.profileComplete;
+        session.user.provisional = !!token.provisional;
       }
       return session;
     },
@@ -139,4 +175,14 @@ export async function requireAdmin() {
     throw new Error("Forbidden");
   }
   return session;
+}
+
+export function canBookSession(user: {
+  role: Role;
+  provisional?: boolean;
+  profileComplete?: boolean;
+}): boolean {
+  if (user.role === "ADMIN") return true;
+  if (user.provisional) return false;
+  return !!user.profileComplete;
 }

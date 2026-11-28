@@ -18,24 +18,23 @@ docker compose up -d --build
 docker compose exec app npm run db:seed
 ```
 
-Open [http://localhost:3000](http://localhost:3000). Member tee sheets: `/days`.
+Open [http://localhost:3000](http://localhost:3000). Tee sheets: `/days`.
 
-If checkout of the Postgres branch aborts due to local edits to `docker-compose.yml` / `schema.prisma` / `Dockerfile`, stash or move those files aside first — rebuilding an old SQLite tree causes **P3019** on migrate and missing tables (**P2021** `RateLimitBucket`).
+Set in `web/.env`: `AUTH_SECRET`, `INITIAL_MEMBER_PASSWORD`, `ADMIN_PASSWORD`.
 
-### Seed accounts
+### Seed accounts (exact login fields)
 
-| Role   | Email             | Password    |
-|--------|-------------------|-------------|
-| Admin  | admin@demo.golf   | admin123!   |
-| Member | member@demo.golf  | member123!  |
+| Who | Email | Password |
+|-----|--------|----------|
+| Admin | `admin@demo.golf` | `ADMIN_PASSWORD` in `web/.env` (default `admin123!`) → opens `/admin` |
+| Player (demo) | `member@demo.golf` | `9087` (last 4 of demo SA ID) |
+| First-time player | *(blank)* | `INITIAL_MEMBER_PASSWORD` (default `BBGK2026`) then My Details |
 
-Guest OTP codes print to the server console when SMTP is unset (development only).
+If admin login fails with “invalid…”, copy `ADMIN_PASSWORD` / `INITIAL_MEMBER_PASSWORD` from `web/.env.example` into `web/.env`, re-seed if needed, and restart Docker.
 
 ## Product direction
 
-Club administrators create and publish normal playing days and tournaments. Tee times default to 10 minutes apart; each slot holds up to four players.
-
-Members sign in with club-managed accounts. Guests register, verify email, then wait for admin approval before booking.
+Admins publish **Shotgun** (9 tees, times-per-tee) and **Tee Times** (start + N slots @ 10 min, Tee 1) sheets with a yellow TIME / TEE / Player grid. Players sign in with the club password (view-only), complete My Details (SA ID → last-4 password), then book empty cells only.
 
 ## MVP scope
 

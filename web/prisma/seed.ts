@@ -5,23 +5,42 @@ import {
   AccountStatus,
   PlayingDayStatus,
   PlayingDayType,
+  PlayingDayFormat,
 } from "@prisma/client";
 import {
   combineDateAndTimeUtc,
-  generateSlotTimes,
+  formatClubDate,
+  generateDefaultShotgunSlots,
+  generateTeeTimeSlots,
+  parseClubDateInput,
 } from "../src/lib/slots";
+import { hashSaId, saIdLastFour } from "../src/lib/sa-id";
+import { normalizeEnvSecret } from "../src/lib/passwords";
 
 const prisma = new PrismaClient();
 
-function utcDateOnlyDaysFromNow(days: number): Date {
+function clubDateDaysFromNow(days: number): Date {
   const now = new Date();
-  const y = now.getUTCFullYear();
-  const m = now.getUTCMonth();
-  const d = now.getUTCDate();
-  return new Date(Date.UTC(y, m, d + days));
+  // Build YYYY-MM-DD in Africa/Johannesburg, then parse with noon-UTC anchor.
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Africa/Johannesburg",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(now);
+  const map: Record<string, string> = {};
+  for (const p of parts) {
+    if (p.type !== "literal") map[p.type] = p.value;
+  }
+  const base = parseClubDateInput(`${map.year}-${map.month}-${map.day}`);
+  return new Date(base.getTime() + days * 24 * 60 * 60 * 1000);
 }
 
 async function main() {
+  const adminPassword = normalizeEnvSecret(process.env.ADMIN_PASSWORD) || "admin123!";
+  const initialMember =
+    normalizeEnvSecret(process.env.INITIAL_MEMBER_PASSWORD) || "BBGK2026";
+
   await prisma.clubSettings.upsert({
     where: { id: 1 },
     create: {
@@ -34,7 +53,7 @@ async function main() {
     update: {},
   });
 
-  const adminHash = await hash("admin123!", 12);
+  const adminHash = await hash(adminPassword, 12);
   await prisma.user.upsert({
     where: { email: "admin@demo.golf" },
     create: {
@@ -44,84 +63,122 @@ async function main() {
       role: Role.ADMIN,
       status: AccountStatus.ACTIVE,
       emailVerifiedAt: new Date(),
+      profileComplete: true,
     },
     update: {
       passwordHash: adminHash,
       role: Role.ADMIN,
       status: AccountStatus.ACTIVE,
       emailVerifiedAt: new Date(),
+      profileComplete: true,
     },
   });
 
-  const memberHash = await hash("member123!", 12);
+  // Demo player with completed profile — password = last 4 of demo SA ID.
+  const demoId = "8001015009087";
+  const lastFour = saIdLastFour(demoId);
+  const memberHash = await hash(lastFour, 12);
   await prisma.user.upsert({
     where: { email: "member@demo.golf" },
     create: {
       email: "member@demo.golf",
       name: "Demo Member",
+      whatsapp: "0820000000",
+      phone: "0820000000",
       passwordHash: memberHash,
+      idNumberHash: hashSaId(demoId),
+      idLastFour: lastFour,
+      profileComplete: true,
       role: Role.MEMBER,
       status: AccountStatus.ACTIVE,
       emailVerifiedAt: new Date(),
     },
     update: {
       passwordHash: memberHash,
+      idNumberHash: hashSaId(demoId),
+      idLastFour: lastFour,
+      profileComplete: true,
+      whatsapp: "0820000000",
       status: AccountStatus.ACTIVE,
       emailVerifiedAt: new Date(),
     },
   });
 
   const settings = await prisma.clubSettings.findUniqueOrThrow({ where: { id: 1 } });
-  const firstTeeTime = "07:00";
-  const lastTeeTime = "09:00";
-  const intervalMinutes = 10;
-  const times = generateSlotTimes(firstTeeTime, lastTeeTime, intervalMinutes);
-  // Two days ahead → within the default 7-day booking window, always in the future.
-  const playDate = utcDateOnlyDaysFromNow(2);
-  const title = "Demo Open Day";
 
-  const existing = await prisma.playingDay.findFirst({
-    where: { title, date: playDate },
-    include: { slots: true },
+  // Published shotgun day
+  const shotgunDate = clubDateDaysFromNow(2);
+  const shotgunTitle = formatClubDate(shotgunDate, settings.timezone);
+  let shotgun = await prisma.playingDay.findFirst({
+    where: { date: shotgunDate, format: PlayingDayFormat.SHOTGUN },
   });
-
-  if (!existing) {
-    const day = await prisma.playingDay.create({
+  if (!shotgun) {
+    const slots = generateDefaultShotgunSlots("10:30");
+    shotgun = await prisma.playingDay.create({
       data: {
-        title,
-        date: playDate,
+        title: shotgunTitle,
+        date: shotgunDate,
         type: PlayingDayType.NORMAL,
-        formatLabel: "Fourball",
-        notes: "Seeded published day for booking tests.",
-        firstTeeTime,
-        lastTeeTime,
-        intervalMinutes,
+        format: PlayingDayFormat.SHOTGUN,
+        formatLabel: "Shotgun",
+        sponsor: "Demo Sponsor",
+        notes: "Seeded shotgun — Tee 1×3, Tees 2–9×2 from one start.",
+        firstTeeTime: "10:30",
+        lastTeeTime: "10:50",
+        intervalMinutes: 10,
         status: PlayingDayStatus.PUBLISHED,
         slots: {
-          create: times.map((t) => ({
-            startsAt: combineDateAndTimeUtc(playDate, t, settings.timezone),
+          create: slots.map((s) => ({
+            startsAt: combineDateAndTimeUtc(
+              shotgunDate,
+              s.startTime,
+              settings.timezone,
+            ),
             capacity: 4,
+            teeNumber: s.teeNumber,
           })),
         },
       },
-      include: { slots: true },
     });
-    console.log(
-      `Seeded published playing day "${day.title}" on ${playDate.toISOString().slice(0, 10)} with ${day.slots.length} slots.`,
-    );
-  } else if (existing.status !== PlayingDayStatus.PUBLISHED) {
-    await prisma.playingDay.update({
-      where: { id: existing.id },
-      data: { status: PlayingDayStatus.PUBLISHED },
-    });
-    console.log(`Re-published existing demo day ${existing.id}.`);
-  } else {
-    console.log(
-      `Demo playing day already present (${existing.id}) with ${existing.slots.length} slots.`,
-    );
+    console.log(`Seeded shotgun day ${shotgun.id} with ${slots.length} rows.`);
   }
 
-  console.log("Seeded club settings, admin@demo.golf / admin123!, member@demo.golf / member123!");
+  // Published tee-times day
+  const teeDate = clubDateDaysFromNow(3);
+  const teeTitle = formatClubDate(teeDate, settings.timezone);
+  let teeDay = await prisma.playingDay.findFirst({
+    where: { date: teeDate, format: PlayingDayFormat.TEE_TIMES },
+  });
+  if (!teeDay) {
+    const times = generateTeeTimeSlots("07:00", 10, 10);
+    teeDay = await prisma.playingDay.create({
+      data: {
+        title: teeTitle,
+        date: teeDate,
+        type: PlayingDayType.NORMAL,
+        format: PlayingDayFormat.TEE_TIMES,
+        formatLabel: "Tee Times",
+        sponsor: "Morning Sponsor",
+        notes: "Seeded tee-times sheet — Tee 1, 10-minute interval.",
+        firstTeeTime: "07:00",
+        lastTeeTime: times[times.length - 1]!,
+        intervalMinutes: 10,
+        status: PlayingDayStatus.PUBLISHED,
+        slots: {
+          create: times.map((t) => ({
+            startsAt: combineDateAndTimeUtc(teeDate, t, settings.timezone),
+            capacity: 4,
+            teeNumber: 1,
+          })),
+        },
+      },
+    });
+    console.log(`Seeded tee-times day ${teeDay.id} with ${times.length} rows.`);
+  }
+
+  console.log(
+    `Seeded admin@demo.golf / ${adminPassword}; member@demo.golf / ${lastFour} (last 4 of demo SA ID); club password ${initialMember}`,
+  );
 }
 
 main()

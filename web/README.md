@@ -1,52 +1,79 @@
 # Golf Tee Booking (app)
 
-Postgres + Docker is the supported path on this branch. Do **not** use SQLite or the old `file:./dev.db` migrations — `prisma migrate deploy` will fail with **P3019** against Postgres.
+Postgres + Docker is the supported path. Do **not** use SQLite — `prisma migrate deploy` fails with **P3019** against Postgres if the old lock is present.
 
 ## Docker Compose (recommended)
 
 ```bash
 cd web
 cp .env.example .env
-# Set a stable AUTH_SECRET (never hardcode it in docker-compose.yml).
-# Changing AUTH_SECRET requires clearing browser cookies for localhost.
+# Set stable AUTH_SECRET, INITIAL_MEMBER_PASSWORD, ADMIN_PASSWORD
+# (never hardcode AUTH_SECRET in docker-compose.yml).
 
-docker compose down -v   # only if you need a fresh DB volume
 docker compose up -d --build
-
-# Wait until app is up, then seed (tsx is a production dependency; works in the image):
 docker compose exec app npm run db:seed
-# equivalent: docker compose exec app npx tsx prisma/seed.ts
-# or:         docker compose exec app npx prisma db seed
-
 curl -I http://localhost:3000
 ```
 
-Optional auto-seed on boot: set `RUN_SEED=true` in `.env` (entrypoint runs `npx tsx prisma/seed.ts` after migrate).
+### Passwords / exact login fields
 
-### Seed accounts
+| Who | Email field | Password field | Goes to |
+|-----|-------------|----------------|---------|
+| **Admin** | `admin@demo.golf` (must match seed) | `ADMIN_PASSWORD` from `web/.env` (default `admin123!`) | `/admin` |
+| Player (first) | *(leave blank)* | `INITIAL_MEMBER_PASSWORD` (e.g. `BBGK2026`) | My Details (view-only) |
+| Player (ongoing) | your email | last **4** digits of SA ID | `/days` |
 
-| Role   | Email             | Password    |
-|--------|-------------------|-------------|
-| Admin  | admin@demo.golf   | admin123!   |
-| Member | member@demo.golf  | member123!  |
+**Admin email must be `admin@demo.golf`** — that is the seeded `ADMIN` row. Env `ADMIN_PASSWORD` always works for that user (even if the DB bcrypt hash is stale). Seeded bcrypt still works as a fallback. Prefer unquoted values in `.env` (`ADMIN_PASSWORD=admin123!`). Use **http://localhost:3000** (not https) so the session cookie is not Secure-only.
 
-### Post-login Application error (digest)
-
-Local logs for digest crashes often show:
-
-1. **`P2021` RateLimitBucket missing** — migrations never applied (wrong/old SQLite tree, or P3019). Fix: rebuild **this** Postgres branch image; entrypoint runs `prisma migrate deploy` (creates `RateLimitBucket`).
-2. **`JWTSessionError` no matching decryption secret** — `AUTH_SECRET` changed or cookies from another secret. Fix: keep one stable `AUTH_SECRET` in `.env`, then clear cookies for `localhost:3000` (or use a private window).
-
-Tee sheets for members live at **`/days`** (not `/dates`).
-
-## Host-side Node (without Compose app)
+#### Ernest — exact test after pull (PR #6)
 
 ```bash
-# Point at published Postgres on localhost
-DATABASE_URL="postgresql://golf:golf@localhost:5432/golf_tee" npm install
-npx prisma migrate deploy
-npm run db:seed
-npm run dev
+cd web
+git pull
+# Confirm web/.env has (unquoted):
+#   AUTH_URL=http://localhost:3000
+#   ADMIN_PASSWORD=admin123!
+#   AUTH_SECRET=<same stable secret as before>
+docker compose up -d --build
+# optional if you changed ADMIN_PASSWORD and want hash in sync:
+# docker compose exec app npm run db:seed
 ```
+
+1. Open **http://localhost:3000/login** (http, not https).
+2. Email: `admin@demo.golf`
+3. Password: exact value of `ADMIN_PASSWORD` in `web/.env` (default `admin123!`).
+4. Submit → should land on **`/admin`** (not “invalid club password/email/ID”).
+5. DevTools → Application → Cookies → `authjs.session-token` must **not** have the Secure flag on localhost.
+
+If login still fails: `docker compose logs app --tail 80` and look for `[auth] secureCookies=false ADMIN_PASSWORD_set=true` and any `Admin email matched but password rejected`.
+
+Seed demo player: `member@demo.golf` / last 4 of SA ID `8001015009087` → **9087**.
+
+### Admin create sheets
+
+- **Type of play**: Tee Times (normal) or Shotgun. Sheet shows **Format of play** label + Notes under the date with the sheet name.
+- **Tee Times**: Date, Sponsor, first start + slot count (10 min, Tee 1). Grid: TIME \| Player 1–4.
+- **Shotgun**: Date, Sponsor, one shared start time. Auto slots: Tee 1×3 (start/+10/+20), Tees 2–9×2 (start/+10). Rows ordered **tee then time** (19 rows). Grid: TIME \| TEE \| Player 1–4.
+- Chosen **Date** is stored as a club calendar day (noon UTC anchor) so it displays as the same day after save.
+
+**Clone / Delete / Closed / Cancelled:** Admin list and day detail. Clone opens the create form prefilled (Date / Sponsor / Type of play editable) as a new **draft** (no bookings copied).
+
+Players book **empty cells** with **any player name**. After booking, **Finished** calls `sendBookingConfirmation` and emails + WhatsApps the **full day sheet** to the player’s profile contacts.
+
+### Email + WhatsApp (Finished / booking confirmation)
+
+Unset providers → message logged to the app console (dev-friendly). Set in `web/.env` (never commit secrets):
+
+| Channel | Env vars |
+|---------|----------|
+| **SMTP email** | `SMTP_HOST`, `SMTP_PORT` (default 587), `SMTP_USER`, `SMTP_PASS`, `FROM_EMAIL` |
+| **Meta WhatsApp** | `WHATSAPP_TOKEN`, `WHATSAPP_PHONE_ID` |
+| **Twilio WhatsApp** | `TWILIO_SID`, `TWILIO_TOKEN`, `TWILIO_WHATSAPP_FROM` (e.g. `whatsapp:+14155238886`) |
+
+Meta is tried first when both Meta and Twilio are configured. SA numbers like `082…` are normalized to `27…`. See `web/.env.example`.
+
+Admin can clear any name. Reset a player under Admin → Accounts.
+
+Tee sheets: **`/days`**.
 
 See the repository [README](../README.md) for product context.

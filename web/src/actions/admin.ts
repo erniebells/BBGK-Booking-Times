@@ -3,53 +3,152 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { z } from "zod";
-import { AccountStatus, PlayingDayStatus, PlayingDayType, Role } from "@prisma/client";
+import {
+  AccountStatus,
+  PlayingDayFormat,
+  PlayingDayStatus,
+  PlayingDayType,
+  Role,
+} from "@prisma/client";
 import { requireAdmin } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { writeAudit } from "@/lib/audit";
 import {
   combineDateAndTimeUtc,
+  formatClubDate,
+  formatClubDateInput,
+  formatClubTimeHhMm,
+  generateDefaultShotgunSlots,
   generateSlotTimes,
+  generateTeeTimeSlots,
+  parseClubDateInput,
+  parseTimeToMinutes,
+  minutesToTime,
 } from "@/lib/slots";
 import { getClubSettings } from "@/lib/club";
 import { BookingError, cancelBooking, createBooking } from "@/lib/booking";
 import type { ActionResult } from "./auth";
 
-const daySchema = z.object({
-  title: z.string().min(2).max(120),
+const baseDaySchema = z.object({
+  title: z.string().min(1).max(120).optional(),
   date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
-  type: z.enum(["NORMAL", "TOURNAMENT"]),
+  type: z.enum(["NORMAL", "TOURNAMENT"]).default("NORMAL"),
+  // NORMAL / TEE_TIMES = staggered tee times; SHOTGUN = everyone starts together
+  sheetFormat: z.enum(["SHOTGUN", "TEE_TIMES", "NORMAL"]),
   formatLabel: z.string().max(80).optional(),
+  sponsor: z.string().max(120).optional(),
   notes: z.string().max(2000).optional(),
-  firstTeeTime: z.string(),
-  lastTeeTime: z.string(),
-  intervalMinutes: z.coerce.number().int().min(1).max(60).default(10),
 });
 
+function resolveFormat(
+  raw: string,
+): PlayingDayFormat {
+  if (raw === "SHOTGUN") return PlayingDayFormat.SHOTGUN;
+  return PlayingDayFormat.TEE_TIMES;
+}
+
+export type CloneDayPrefill = {
+  cloneFromId: string;
+  sourceTitle: string;
+  title: string;
+  date: string;
+  sponsor: string;
+  sheetFormat: "SHOTGUN" | "TEE_TIMES";
+  formatLabel: string;
+  notes: string;
+  firstTeeTime: string;
+  slotCount: number;
+  type: "NORMAL" | "TOURNAMENT";
+  slotRows: string[];
+};
+
+/** Prefill for Clone tee sheet — structure only (no bookings). */
+export async function getCloneDayPrefill(
+  dayId: string,
+): Promise<CloneDayPrefill | null> {
+  await requireAdmin();
+  const settings = await getClubSettings();
+  const day = await prisma.playingDay.findUnique({
+    where: { id: dayId },
+    include: {
+      slots: {
+        orderBy: [{ teeNumber: "asc" }, { startsAt: "asc" }],
+        select: { startsAt: true, teeNumber: true },
+      },
+    },
+  });
+  if (!day) return null;
+  const sheetFormat =
+    day.format === PlayingDayFormat.SHOTGUN ? "SHOTGUN" : "TEE_TIMES";
+  const slotRows = day.slots.map(
+    (s) =>
+      `${formatClubTimeHhMm(s.startsAt, settings.timezone)} · Tee ${s.teeNumber}`,
+  );
+  return {
+    cloneFromId: day.id,
+    sourceTitle: day.title,
+    title: "",
+    date: formatClubDateInput(day.date, settings.timezone),
+    sponsor: day.sponsor ?? "",
+    sheetFormat,
+    formatLabel:
+      day.formatLabel ||
+      (sheetFormat === "SHOTGUN" ? "Shotgun" : "Tee Times"),
+    notes: day.notes ?? "",
+    firstTeeTime: day.firstTeeTime,
+    slotCount: Math.max(1, day.slots.length),
+    type: day.type === "TOURNAMENT" ? "TOURNAMENT" : "NORMAL",
+    slotRows,
+  };
+}
+
 export async function previewSlots(formData: FormData): Promise<
-  ActionResult & { times?: string[] }
+  ActionResult & { times?: string[]; rows?: string[] }
 > {
   await requireAdmin();
-  const parsed = daySchema.safeParse({
-    title: formData.get("title") || "Preview",
-    date: formData.get("date"),
-    type: formData.get("type") || "NORMAL",
-    formatLabel: formData.get("formatLabel") || undefined,
-    notes: formData.get("notes") || undefined,
-    firstTeeTime: formData.get("firstTeeTime"),
-    lastTeeTime: formData.get("lastTeeTime"),
-    intervalMinutes: formData.get("intervalMinutes") || 10,
-  });
-  if (!parsed.success) {
-    return { ok: false, error: "Invalid day details." };
-  }
+  const sheetFormat = String(formData.get("sheetFormat") ?? "TEE_TIMES");
+  const cloneFromId = String(formData.get("cloneFromId") ?? "").trim();
   try {
-    const times = generateSlotTimes(
-      parsed.data.firstTeeTime,
-      parsed.data.lastTeeTime,
-      parsed.data.intervalMinutes,
-    );
-    return { ok: true, times };
+    const format = resolveFormat(sheetFormat);
+    if (cloneFromId) {
+      const source = await prisma.playingDay.findUnique({
+        where: { id: cloneFromId },
+        include: {
+          slots: {
+            orderBy: [{ teeNumber: "asc" }, { startsAt: "asc" }],
+            select: { startsAt: true, teeNumber: true },
+          },
+        },
+      });
+      if (source && source.format === format) {
+        const settings = await getClubSettings();
+        // Tee-times clone: show exact copied structure. Shotgun: formula from start.
+        if (format === PlayingDayFormat.TEE_TIMES) {
+          const rows = source.slots.map(
+            (s) =>
+              `${formatClubTimeHhMm(s.startsAt, settings.timezone)} · Tee ${s.teeNumber}`,
+          );
+          return {
+            ok: true,
+            rows,
+            times: rows.map((r) => r.split(" · ")[0]!),
+          };
+        }
+      }
+    }
+    if (format === PlayingDayFormat.SHOTGUN) {
+      const start = String(formData.get("firstTeeTime") ?? "10:30");
+      const slots = generateDefaultShotgunSlots(start);
+      return {
+        ok: true,
+        rows: slots.map((s) => `${s.startTime} · Tee ${s.teeNumber}`),
+        times: slots.map((s) => s.startTime),
+      };
+    }
+    const first = String(formData.get("firstTeeTime") ?? "07:00");
+    const slotCount = Number(formData.get("slotCount") || 12);
+    const times = generateTeeTimeSlots(first, slotCount, 10);
+    return { ok: true, times, rows: times.map((t) => `${t} · Tee 1`) };
   } catch (e) {
     return {
       ok: false,
@@ -63,27 +162,102 @@ export async function createPlayingDay(
   formData: FormData,
 ): Promise<ActionResult & { dayId?: string }> {
   const session = await requireAdmin();
-  const parsed = daySchema.safeParse({
-    title: formData.get("title"),
+  const parsed = baseDaySchema.safeParse({
+    title: formData.get("title") || undefined,
     date: formData.get("date"),
     type: formData.get("type") || "NORMAL",
+    sheetFormat: formData.get("sheetFormat") || "TEE_TIMES",
     formatLabel: formData.get("formatLabel") || undefined,
+    sponsor: formData.get("sponsor") || undefined,
     notes: formData.get("notes") || undefined,
-    firstTeeTime: formData.get("firstTeeTime"),
-    lastTeeTime: formData.get("lastTeeTime"),
-    intervalMinutes: formData.get("intervalMinutes") || 10,
   });
   if (!parsed.success) {
-    return { ok: false, error: "Invalid day details." };
+    return { ok: false, error: "Invalid day details — check the date and format." };
   }
 
-  let times: string[];
+  const settings = await getClubSettings();
+  // Calendar day the admin picked (noon UTC anchor — see parseClubDateInput).
+  const date = parseClubDateInput(parsed.data.date);
+  const format = resolveFormat(parsed.data.sheetFormat);
+  const cloneFromId = String(formData.get("cloneFromId") ?? "").trim();
+
+  let firstTeeTime = "07:00";
+  let lastTeeTime = "09:00";
+  let intervalMinutes = 10;
+  let slotCreates: { startsAt: Date; capacity: number; teeNumber: number }[] = [];
+  let clonedFrom: string | null = null;
+
   try {
-    times = generateSlotTimes(
-      parsed.data.firstTeeTime,
-      parsed.data.lastTeeTime,
-      parsed.data.intervalMinutes,
-    );
+    let copiedFromSource = false;
+    if (cloneFromId) {
+      const source = await prisma.playingDay.findUnique({
+        where: { id: cloneFromId },
+        include: {
+          slots: {
+            orderBy: [{ teeNumber: "asc" }, { startsAt: "asc" }],
+            select: { startsAt: true, teeNumber: true, capacity: true },
+          },
+        },
+      });
+      if (!source) {
+        return { ok: false, error: "Source tee sheet not found." };
+      }
+      // Same format → copy slot structure (times/tees/capacity), never bookings.
+      if (source.format === format && source.slots.length > 0) {
+        if (format === PlayingDayFormat.TEE_TIMES) {
+          slotCreates = source.slots.map((s) => ({
+            startsAt: combineDateAndTimeUtc(
+              date,
+              formatClubTimeHhMm(s.startsAt, settings.timezone),
+              settings.timezone,
+            ),
+            capacity: s.capacity,
+            teeNumber: s.teeNumber,
+          }));
+          firstTeeTime = source.firstTeeTime;
+          lastTeeTime = source.lastTeeTime;
+          intervalMinutes = source.intervalMinutes || 10;
+          copiedFromSource = true;
+          clonedFrom = source.id;
+        }
+        // Shotgun: keep formulaic layout from editable start time (below).
+        if (format === PlayingDayFormat.SHOTGUN) {
+          clonedFrom = source.id;
+        }
+      } else if (source.format !== format) {
+        clonedFrom = source.id; // still a clone, but slots regenerated for new format
+      }
+    }
+
+    if (!copiedFromSource) {
+      if (format === PlayingDayFormat.SHOTGUN) {
+        firstTeeTime = String(formData.get("firstTeeTime") ?? "10:30");
+        const slots = generateDefaultShotgunSlots(firstTeeTime);
+        const mins = slots.map((s) => parseTimeToMinutes(s.startTime));
+        lastTeeTime = minutesToTime(Math.max(...mins));
+        intervalMinutes = 10;
+        slotCreates = slots.map((s) => ({
+          startsAt: combineDateAndTimeUtc(date, s.startTime, settings.timezone),
+          capacity: 4,
+          teeNumber: s.teeNumber,
+        }));
+      } else {
+        firstTeeTime = String(formData.get("firstTeeTime") ?? "07:00");
+        const slotCount = Number(formData.get("slotCount") || 12);
+        intervalMinutes = 10;
+        const times = generateTeeTimeSlots(
+          firstTeeTime,
+          slotCount,
+          intervalMinutes,
+        );
+        lastTeeTime = times[times.length - 1]!;
+        slotCreates = times.map((t) => ({
+          startsAt: combineDateAndTimeUtc(date, t, settings.timezone),
+          capacity: 4,
+          teeNumber: 1,
+        }));
+      }
+    }
   } catch (e) {
     return {
       ok: false,
@@ -91,41 +265,48 @@ export async function createPlayingDay(
     };
   }
 
-  const settings = await getClubSettings();
-  const date = new Date(`${parsed.data.date}T00:00:00.000Z`);
+  const dateTitle = formatClubDate(date, settings.timezone);
+  const title =
+    (parsed.data.title && parsed.data.title.trim() && parsed.data.title.trim() !== "Club day"
+      ? parsed.data.title.trim()
+      : dateTitle);
 
   const day = await prisma.playingDay.create({
     data: {
-      title: parsed.data.title,
+      title,
       date,
       type: parsed.data.type as PlayingDayType,
-      formatLabel: parsed.data.formatLabel || null,
+      format,
+      formatLabel:
+        parsed.data.formatLabel ||
+        (format === PlayingDayFormat.SHOTGUN ? "Shotgun" : "Tee Times"),
+      sponsor: parsed.data.sponsor || null,
       notes: parsed.data.notes || null,
-      firstTeeTime: parsed.data.firstTeeTime,
-      lastTeeTime: parsed.data.lastTeeTime,
-      intervalMinutes: parsed.data.intervalMinutes,
+      firstTeeTime,
+      lastTeeTime,
+      intervalMinutes,
       status: PlayingDayStatus.DRAFT,
-      slots: {
-        create: times.map((t) => ({
-          startsAt: combineDateAndTimeUtc(date, t, settings.timezone),
-          capacity: 4,
-        })),
-      },
+      slots: { create: slotCreates },
     },
   });
 
   await writeAudit({
     actorId: session.user.id,
-    action: "playing_day.create",
+    action: clonedFrom ? "playing_day.clone" : "playing_day.create",
     entityType: "PlayingDay",
     entityId: day.id,
-    metadata: { title: day.title, slots: times.length },
+    metadata: {
+      title: day.title,
+      date: parsed.data.date,
+      format,
+      slots: slotCreates.length,
+      clonedFrom,
+      bookingsCopied: false,
+    },
   });
 
   revalidatePath("/admin");
   revalidatePath(`/admin/days/${day.id}`);
-  // Navigate into the new sheet — useActionState otherwise leaves the create
-  // form stuck with only a raw day id and no link to open/publish.
   redirect(`/admin/days/${day.id}`);
 }
 
@@ -149,6 +330,71 @@ export async function setPlayingDayStatus(
   revalidatePath("/days");
   revalidatePath(`/days/${dayId}`);
   return { ok: true, message: `Day marked ${status}.` };
+}
+
+/** Form action: set status CLOSED. */
+export async function closePlayingDayAction(formData: FormData): Promise<void> {
+  const dayId = String(formData.get("dayId") ?? "");
+  if (!dayId) return;
+  await setPlayingDayStatus(dayId, PlayingDayStatus.CLOSED);
+}
+
+/** Form action: set status CANCELLED. */
+export async function cancelPlayingDayAction(formData: FormData): Promise<void> {
+  const dayId = String(formData.get("dayId") ?? "");
+  if (!dayId) return;
+  await setPlayingDayStatus(dayId, PlayingDayStatus.CANCELLED);
+}
+
+/**
+ * Delete a tee sheet and its slots. Clears booking places first (slot FK is Restrict).
+ * Bookings that only lived on this sheet are removed.
+ */
+export async function deletePlayingDay(dayId: string): Promise<ActionResult> {
+  const session = await requireAdmin();
+  const day = await prisma.playingDay.findUnique({
+    where: { id: dayId },
+    include: { slots: { select: { id: true } } },
+  });
+  if (!day) return { ok: false, error: "Tee sheet not found." };
+
+  const slotIds = day.slots.map((s) => s.id);
+  await prisma.$transaction(async (tx) => {
+    if (slotIds.length > 0) {
+      const places = await tx.bookingPlace.findMany({
+        where: { slotId: { in: slotIds } },
+        select: { bookingId: true },
+      });
+      const bookingIds = [...new Set(places.map((p) => p.bookingId))];
+      await tx.bookingPlace.deleteMany({
+        where: { slotId: { in: slotIds } },
+      });
+      if (bookingIds.length > 0) {
+        await tx.booking.deleteMany({ where: { id: { in: bookingIds } } });
+      }
+    }
+    await tx.playingDay.delete({ where: { id: dayId } });
+  });
+
+  await writeAudit({
+    actorId: session.user.id,
+    action: "playing_day.delete",
+    entityType: "PlayingDay",
+    entityId: dayId,
+    metadata: { title: day.title },
+  });
+
+  revalidatePath("/admin");
+  revalidatePath("/days");
+  return { ok: true, message: "Tee sheet deleted." };
+}
+
+export async function deletePlayingDayAction(formData: FormData): Promise<void> {
+  const dayId = String(formData.get("dayId") ?? "");
+  if (!dayId) return;
+  const result = await deletePlayingDay(dayId);
+  if (!result.ok) return;
+  redirect("/admin");
 }
 
 export async function decideGuest(
@@ -310,6 +556,7 @@ export async function updatePlayingDayTimes(
           create: times.map((t) => ({
             startsAt: combineDateAndTimeUtc(day.date, t, settings.timezone),
             capacity: 4,
+            teeNumber: day.format === "SHOTGUN" ? 1 : 1,
           })),
         },
       },

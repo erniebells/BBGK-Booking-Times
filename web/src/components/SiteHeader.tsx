@@ -14,19 +14,18 @@ export async function SiteHeader() {
           {session?.user ? (
             <>
               <Link href="/days" className="hover:text-emerald-800">
-                Tee times
-              </Link>
-              <Link href="/bookings" className="hover:text-emerald-800">
-                My bookings
+                Tee sheets
               </Link>
               {session.user.role === "ADMIN" && (
                 <Link href="/admin" className="hover:text-emerald-800">
                   Admin
                 </Link>
               )}
-              <Link href="/account/status" className="hover:text-emerald-800">
-                Account
-              </Link>
+              {session.user.role !== "ADMIN" && (
+                <Link href="/account/details" className="hover:text-emerald-800">
+                  My Details
+                </Link>
+              )}
               <form action={logoutAction}>
                 <button type="submit" className="text-emerald-800 underline-offset-2 hover:underline">
                   Sign out
@@ -34,17 +33,9 @@ export async function SiteHeader() {
               </form>
             </>
           ) : (
-            <>
-              <Link href="/login" className="hover:text-emerald-800">
-                Sign in
-              </Link>
-              <Link
-                href="/register"
-                className="rounded-md bg-emerald-800 px-3 py-1.5 text-white hover:bg-emerald-900"
-              >
-                Guest register
-              </Link>
-            </>
+            <Link href="/login" className="hover:text-emerald-800">
+              Sign in
+            </Link>
           )}
         </nav>
       </div>
