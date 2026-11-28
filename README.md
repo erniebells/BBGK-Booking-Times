@@ -5,24 +5,22 @@ An MVP web app for a South African golf club to publish tee sheets and let appro
 ## Stack
 
 - Next.js App Router (TypeScript) in [`web/`](web/)
-- SQLite + Prisma for local MVP (Docker Compose Postgres config included when Docker is available)
+- **PostgreSQL** + Prisma (Docker Compose). SQLite is not supported on this line of work.
 - Auth.js (credentials)
 - Tailwind CSS
 
-## Run locally
+## Run with Docker
 
 ```bash
 cd web
-cp .env.example .env   # if needed
-npm install
-npx prisma migrate dev --name init
-npm run db:seed
-npm run dev
+cp .env.example .env          # set a stable AUTH_SECRET (compose loads via env_file)
+docker compose up -d --build
+docker compose exec app npm run db:seed
 ```
 
-Open [http://localhost:3000](http://localhost:3000).
+Open [http://localhost:3000](http://localhost:3000). Member tee sheets: `/days`.
 
-`docker-compose.yml` is provided for PostgreSQL when Docker is available; switch `prisma/schema.prisma` provider to `postgresql` and update `DATABASE_URL` accordingly.
+If checkout of the Postgres branch aborts due to local edits to `docker-compose.yml` / `schema.prisma` / `Dockerfile`, stash or move those files aside first — rebuilding an old SQLite tree causes **P3019** on migrate and missing tables (**P2021** `RateLimitBucket`).
 
 ### Seed accounts
 

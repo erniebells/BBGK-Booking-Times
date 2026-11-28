@@ -1,9 +1,9 @@
 import Link from "next/link";
-import { auth } from "@/lib/auth";
 import { logoutAction } from "@/actions/auth";
+import { safeAuth } from "@/lib/safe-auth";
 
 export async function SiteHeader() {
-  const session = await auth();
+  const session = await safeAuth();
   return (
     <header className="border-b border-emerald-900/15 bg-[#f3f6f1]/90 backdrop-blur">
       <div className="mx-auto flex max-w-5xl items-center justify-between gap-4 px-4 py-3">

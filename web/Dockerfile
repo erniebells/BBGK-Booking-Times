@@ -1,3 +1,6 @@
+# Production image keeps prisma + tsx on the runtime dependency list so
+# `prisma migrate deploy`, `npm run db:seed`, and `npx prisma db seed` work
+# inside the container (no host-side tsx required).
 FROM node:22-bookworm-slim AS deps
 WORKDIR /app
 RUN apt-get update -qq && apt-get install -y -qq openssl ca-certificates && rm -rf /var/lib/apt/lists/*
@@ -30,7 +33,9 @@ COPY --from=builder /app/src ./src
 COPY --from=builder /app/tsconfig.json ./tsconfig.json
 COPY --from=builder /app/next.config.ts ./
 COPY docker-entrypoint.sh ./
-RUN chmod +x docker-entrypoint.sh
+RUN chmod +x docker-entrypoint.sh \
+  && test -x node_modules/.bin/tsx \
+  && test -x node_modules/.bin/prisma
 EXPOSE 3000
 ENTRYPOINT ["./docker-entrypoint.sh"]
 CMD ["npm", "run", "start"]
