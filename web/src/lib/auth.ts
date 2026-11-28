@@ -38,6 +38,9 @@ const credentialsSchema = z.object({
 });
 
 export const { handlers, auth, signIn, signOut } = NextAuth({
+  // AUTH_TRUST_HOST / AUTH_URL from env; trustHost avoids absolute redirect
+  // issues when the app is reached via Docker or a non-localhost host.
+  trustHost: true,
   session: { strategy: "jwt" },
   pages: {
     signIn: "/login",
