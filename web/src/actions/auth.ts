@@ -59,8 +59,8 @@ export async function loginAction(
     .trim();
   const password = String(formData.get("password") ?? "");
   const rememberMe = String(formData.get("rememberMe") ?? "") === "on";
-  const redirectTo = safeInternalPath(
-    String(formData.get("callbackUrl") ?? formData.get("redirectTo") ?? "/days"),
+  const requestedRedirect = safeInternalPath(
+    String(formData.get("callbackUrl") ?? formData.get("redirectTo") ?? ""),
   );
 
   const rl = await consumeRateLimit(
@@ -78,25 +78,44 @@ export async function loginAction(
       password,
       rememberMe: rememberMe ? "1" : "",
       redirect: false,
-      redirectTo,
+      redirectTo: requestedRedirect || "/days",
     });
     if (isFailedSignInResult(result)) {
-      return { ok: false, error: "Invalid club password, email, or ID digits." };
+      return {
+        ok: false,
+        error:
+          "Sign-in failed. Admin: use admin email + ADMIN_PASSWORD (or seeded admin password). Players: club password alone, or email + last 4 of SA ID.",
+      };
     }
   } catch (e) {
     if (isCredentialsFailure(e)) {
-      return { ok: false, error: "Invalid club password, email, or ID digits." };
+      return {
+        ok: false,
+        error:
+          "Sign-in failed. Admin: use admin email + ADMIN_PASSWORD (or seeded admin password). Players: club password alone, or email + last 4 of SA ID.",
+      };
     }
     throw e;
   }
 
-  // After shared-password login, send to My Details if profile incomplete.
   const session = await auth();
-  if (session?.user && (!session.user.profileComplete || session.user.provisional)) {
+  if (!session?.user) {
+    return { ok: false, error: "Sign-in failed — no session created." };
+  }
+
+  // Admin → admin home (unless a safe callback was provided).
+  if (session.user.role === "ADMIN") {
+    redirect(requestedRedirect && requestedRedirect.startsWith("/admin")
+      ? requestedRedirect
+      : "/admin");
+  }
+
+  // Shared-password / incomplete profile → My Details (view-only until done).
+  if (!session.user.profileComplete || session.user.provisional) {
     redirect("/account/details");
   }
 
-  redirect(redirectTo);
+  redirect(requestedRedirect || "/days");
 }
 
 export async function logoutAction() {

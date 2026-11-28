@@ -97,29 +97,54 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         const initial = initialMemberPassword();
         const adminPw = adminPassword();
 
-        // Admin: email + ADMIN_PASSWORD (or hashed admin user password).
-        if (adminPw && password === adminPw) {
-          const admin = email
-            ? await prisma.user.findFirst({
-                where: { email, role: "ADMIN", status: "ACTIVE" },
-              })
-            : await prisma.user.findFirst({
-                where: { role: "ADMIN", status: "ACTIVE" },
-              });
-          if (!admin) return null;
-          return {
-            id: admin.id,
-            email: admin.email,
-            name: admin.name,
-            role: admin.role,
-            status: admin.status,
-            emailVerifiedAt: admin.emailVerifiedAt,
-            profileComplete: true,
-            provisional: false,
-          };
+        // Admin path (distinct from club password / last-4 ID):
+        // Prefer email + password. Accept either ADMIN_PASSWORD from env
+        // OR the admin user's stored passwordHash (seeded bcrypt).
+        // Previously we only matched env and then rejected ADMIN in the
+        // hash path — so missing ADMIN_PASSWORD in .env blocked all admin login.
+        if (email) {
+          const admin = await prisma.user.findFirst({
+            where: { email, role: "ADMIN", status: "ACTIVE" },
+          });
+          if (admin) {
+            const envOk = Boolean(adminPw) && password === adminPw;
+            const hashOk = await compare(password, admin.passwordHash);
+            if (envOk || hashOk) {
+              return {
+                id: admin.id,
+                email: admin.email,
+                name: admin.name,
+                role: admin.role,
+                status: admin.status,
+                emailVerifiedAt: admin.emailVerifiedAt,
+                profileComplete: true,
+                provisional: false,
+              };
+            }
+            return null;
+          }
+        } else if (adminPw && password === adminPw) {
+          // Password-only admin when ADMIN_PASSWORD is set (first admin user).
+          const admin = await prisma.user.findFirst({
+            where: { role: "ADMIN", status: "ACTIVE" },
+            orderBy: { createdAt: "asc" },
+          });
+          if (admin) {
+            return {
+              id: admin.id,
+              email: admin.email,
+              name: admin.name,
+              role: admin.role,
+              status: admin.status,
+              emailVerifiedAt: admin.emailVerifiedAt,
+              profileComplete: true,
+              provisional: false,
+            };
+          }
         }
 
         // Shared club password → view-only provisional session.
+        // Do not treat ADMIN_PASSWORD as the club password.
         if (initial && password === initial) {
           return {
             id: PROVISIONAL_USER_ID,
@@ -133,7 +158,7 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
           };
         }
 
-        // Returning player: email + last-4 ID password.
+        // Returning player: email + last-4 ID password (never admin here).
         if (!email) return null;
         const user = await prisma.user.findUnique({ where: { email } });
         if (!user || user.role === "ADMIN") return null;

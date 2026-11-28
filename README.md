@@ -22,13 +22,15 @@ Open [http://localhost:3000](http://localhost:3000). Tee sheets: `/days`.
 
 Set in `web/.env`: `AUTH_SECRET`, `INITIAL_MEMBER_PASSWORD`, `ADMIN_PASSWORD`.
 
-### Seed accounts
+### Seed accounts (exact login fields)
 
-| Who | Login |
-|-----|--------|
-| Admin | `admin@demo.golf` + `ADMIN_PASSWORD` (default `admin123!`) |
-| Player (demo) | `member@demo.golf` + last 4 of demo SA ID → `9087` |
-| First-time player | club password only (`INITIAL_MEMBER_PASSWORD`, default `BBGK2026`) then My Details |
+| Who | Email | Password |
+|-----|--------|----------|
+| Admin | `admin@demo.golf` | `ADMIN_PASSWORD` in `web/.env` (default `admin123!`) → opens `/admin` |
+| Player (demo) | `member@demo.golf` | `9087` (last 4 of demo SA ID) |
+| First-time player | *(blank)* | `INITIAL_MEMBER_PASSWORD` (default `BBGK2026`) then My Details |
+
+If admin login fails with “invalid…”, copy `ADMIN_PASSWORD` / `INITIAL_MEMBER_PASSWORD` from `web/.env.example` into `web/.env`, re-seed if needed, and restart Docker.
 
 ## Product direction
 

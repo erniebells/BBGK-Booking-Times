@@ -15,15 +15,17 @@ docker compose exec app npm run db:seed
 curl -I http://localhost:3000
 ```
 
-### Passwords
+### Passwords / exact login fields
 
-| Who | How |
-|-----|-----|
-| Player (first) | `INITIAL_MEMBER_PASSWORD` only → view-only → **My Details** |
-| Player (ongoing) | email + **last 4 of SA ID** |
-| Admin | `admin@demo.golf` + `ADMIN_PASSWORD` |
+| Who | Email field | Password field | Goes to |
+|-----|-------------|----------------|---------|
+| **Admin** | `admin@demo.golf` | `ADMIN_PASSWORD` from `web/.env` (seed default `admin123!`) | `/admin` |
+| Player (first) | *(leave blank)* | `INITIAL_MEMBER_PASSWORD` (e.g. `BBGK2026`) | My Details (view-only) |
+| Player (ongoing) | your email | last **4** digits of SA ID | `/days` |
 
-Seed demo player: `member@demo.golf` / last 4 of seeded SA ID `8001015009087` → **9087**.
+Admin also accepts the seeded bcrypt hash if it matches (so login still works if `ADMIN_PASSWORD` was missing from `.env` but seed used `admin123!`). After adding env vars: restart compose / app.
+
+Seed demo player: `member@demo.golf` / last 4 of SA ID `8001015009087` → **9087**.
 
 ### Admin create sheets
 
