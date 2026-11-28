@@ -6,6 +6,7 @@ import { formatClubDate } from "@/lib/slots";
 import { setPlayingDayStatus } from "@/actions/admin";
 import { TeeSheetGrid } from "@/components/TeeSheetGrid";
 import { RegenerateSlotsForm } from "@/components/RegenerateSlotsForm";
+import { AdminDayActions } from "@/components/AdminDayActions";
 
 export default async function AdminDayPage({
   params,
@@ -36,14 +37,10 @@ export default async function AdminDayPage({
     "use server";
     await setPlayingDayStatus(id, "PUBLISHED");
   }
-  async function close() {
-    "use server";
-    await setPlayingDayStatus(id, "CLOSED");
-  }
-  async function cancelDay() {
-    "use server";
-    await setPlayingDayStatus(id, "CANCELLED");
-  }
+
+  const formatOfPlay =
+    day.formatLabel ||
+    (day.format === "SHOTGUN" ? "Shotgun" : "Tee Times");
 
   return (
     <div className="card-stack">
@@ -55,30 +52,11 @@ export default async function AdminDayPage({
           <p className="text-sm text-emerald-900/60">{day.status}</p>
         </div>
         <div className="flex flex-wrap gap-2">
-          <Link
-            href={`/admin/days/new?cloneFrom=${day.id}`}
-            className="btn btn-secondary"
-          >
-            Clone tee sheet
-          </Link>
+          <AdminDayActions dayId={day.id} status={day.status} />
           {day.status === "DRAFT" && (
             <form action={publish}>
               <button className="btn" type="submit">
                 Publish
-              </button>
-            </form>
-          )}
-          {day.status === "PUBLISHED" && (
-            <form action={close}>
-              <button className="btn btn-secondary" type="submit">
-                Close
-              </button>
-            </form>
-          )}
-          {day.status !== "CANCELLED" && (
-            <form action={cancelDay}>
-              <button className="btn btn-secondary" type="submit">
-                Cancel day
               </button>
             </form>
           )}
@@ -95,18 +73,17 @@ export default async function AdminDayPage({
       )}
 
       <TeeSheetGrid
+        dayId={day.id}
         dayTitle={day.title}
         dateLabel={formatClubDate(day.date)}
         sponsor={day.sponsor}
-        formatLabel={
-          day.formatLabel ||
-          (day.format === "SHOTGUN" ? "Shotgun" : "Tee Times")
-        }
+        formatLabel={formatOfPlay}
+        notes={day.notes}
         showTeeColumn={day.format === "SHOTGUN"}
         slots={day.slots}
         canBook={true}
         isAdmin={true}
-        defaultPlayerName={session.user.name}
+        defaultPlayerName=""
         viewOnlyReason={null}
       />
     </div>

@@ -332,6 +332,71 @@ export async function setPlayingDayStatus(
   return { ok: true, message: `Day marked ${status}.` };
 }
 
+/** Form action: set status CLOSED. */
+export async function closePlayingDayAction(formData: FormData): Promise<void> {
+  const dayId = String(formData.get("dayId") ?? "");
+  if (!dayId) return;
+  await setPlayingDayStatus(dayId, PlayingDayStatus.CLOSED);
+}
+
+/** Form action: set status CANCELLED. */
+export async function cancelPlayingDayAction(formData: FormData): Promise<void> {
+  const dayId = String(formData.get("dayId") ?? "");
+  if (!dayId) return;
+  await setPlayingDayStatus(dayId, PlayingDayStatus.CANCELLED);
+}
+
+/**
+ * Delete a tee sheet and its slots. Clears booking places first (slot FK is Restrict).
+ * Bookings that only lived on this sheet are removed.
+ */
+export async function deletePlayingDay(dayId: string): Promise<ActionResult> {
+  const session = await requireAdmin();
+  const day = await prisma.playingDay.findUnique({
+    where: { id: dayId },
+    include: { slots: { select: { id: true } } },
+  });
+  if (!day) return { ok: false, error: "Tee sheet not found." };
+
+  const slotIds = day.slots.map((s) => s.id);
+  await prisma.$transaction(async (tx) => {
+    if (slotIds.length > 0) {
+      const places = await tx.bookingPlace.findMany({
+        where: { slotId: { in: slotIds } },
+        select: { bookingId: true },
+      });
+      const bookingIds = [...new Set(places.map((p) => p.bookingId))];
+      await tx.bookingPlace.deleteMany({
+        where: { slotId: { in: slotIds } },
+      });
+      if (bookingIds.length > 0) {
+        await tx.booking.deleteMany({ where: { id: { in: bookingIds } } });
+      }
+    }
+    await tx.playingDay.delete({ where: { id: dayId } });
+  });
+
+  await writeAudit({
+    actorId: session.user.id,
+    action: "playing_day.delete",
+    entityType: "PlayingDay",
+    entityId: dayId,
+    metadata: { title: day.title },
+  });
+
+  revalidatePath("/admin");
+  revalidatePath("/days");
+  return { ok: true, message: "Tee sheet deleted." };
+}
+
+export async function deletePlayingDayAction(formData: FormData): Promise<void> {
+  const dayId = String(formData.get("dayId") ?? "");
+  if (!dayId) return;
+  const result = await deletePlayingDay(dayId);
+  if (!result.ok) return;
+  redirect("/admin");
+}
+
 export async function decideGuest(
   userId: string,
   decision: "APPROVE" | "REJECT",

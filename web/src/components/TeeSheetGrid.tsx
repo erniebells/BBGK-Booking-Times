@@ -1,8 +1,11 @@
 "use client";
 
 import { useActionState, useState } from "react";
-import { bookPlayerCell } from "@/actions/booking";
-import { adminClearPlayerCell } from "@/actions/booking";
+import {
+  bookPlayerCell,
+  adminClearPlayerCell,
+  finishBookingNotify,
+} from "@/actions/booking";
 import { FormMessage } from "@/components/ActionForm";
 import { formatClubTime } from "@/lib/slots";
 
@@ -21,10 +24,12 @@ type SlotRow = {
 };
 
 export function TeeSheetGrid({
+  dayId,
   dayTitle,
   dateLabel,
   sponsor,
   formatLabel,
+  notes,
   showTeeColumn,
   slots,
   canBook,
@@ -32,19 +37,23 @@ export function TeeSheetGrid({
   defaultPlayerName,
   viewOnlyReason,
 }: {
+  dayId: string;
   dayTitle: string;
   dateLabel: string;
   sponsor: string | null;
   formatLabel: string | null;
+  notes?: string | null;
   showTeeColumn: boolean;
   slots: SlotRow[];
   canBook: boolean;
   isAdmin: boolean;
-  defaultPlayerName: string;
+  /** Prefill for empty-cell book; leave blank so any name can be entered. */
+  defaultPlayerName?: string;
   viewOnlyReason?: string | null;
 }) {
   const playerCount = slots.reduce((sum, s) => sum + s.places.length, 0);
   const capacity = slots.reduce((sum, s) => sum + s.capacity, 0);
+  const notesText = notes?.trim() || "";
 
   return (
     <div className="card-stack">
@@ -53,8 +62,19 @@ export function TeeSheetGrid({
           {dateLabel}
         </h1>
         <p className="mt-1 text-sm text-emerald-950/70">
-          {dayTitle}
-          {formatLabel ? ` · ${formatLabel}` : ""}
+          <span className="font-semibold text-emerald-950">{dayTitle}</span>
+          {formatLabel ? (
+            <>
+              {" · "}
+              <span>Format of play: {formatLabel}</span>
+            </>
+          ) : null}
+          {notesText ? (
+            <>
+              {" · "}
+              <span>Notes: {notesText}</span>
+            </>
+          ) : null}
         </p>
       </div>
 
@@ -112,9 +132,10 @@ export function TeeSheetGrid({
                         />
                       ) : canBook ? (
                         <EmptyCellBook
+                          dayId={dayId}
                           slotId={slot.id}
                           position={pos}
-                          defaultName={defaultPlayerName}
+                          defaultName={defaultPlayerName ?? ""}
                         />
                       ) : (
                         <span className="teesheet-empty">—</span>
@@ -174,16 +195,22 @@ function ClearButton({ placeId }: { placeId: string }) {
 }
 
 function EmptyCellBook({
+  dayId,
   slotId,
   position,
   defaultName,
 }: {
+  dayId: string;
   slotId: string;
   position: number;
   defaultName: string;
 }) {
   const [open, setOpen] = useState(false);
-  const [state, action, pending] = useActionState(bookPlayerCell, null);
+  const [bookState, bookAction, booking] = useActionState(bookPlayerCell, null);
+  const [finishState, finishAction, finishing] = useActionState(
+    finishBookingNotify,
+    null,
+  );
 
   if (!open) {
     return (
@@ -197,29 +224,58 @@ function EmptyCellBook({
     );
   }
 
+  const booked = Boolean(bookState && bookState.ok);
+  const finished = Boolean(finishState && finishState.ok);
+
   return (
-    <form action={action} className="teesheet-book-form">
-      <input type="hidden" name="slotId" value={slotId} />
-      <input type="hidden" name="position" value={position} />
-      <FormMessage result={state} />
-      <input
-        name="playerName"
-        defaultValue={defaultName}
-        required
-        aria-label={`Player ${position} name`}
-      />
-      <div className="flex gap-1">
-        <button type="submit" className="btn" disabled={pending}>
-          {pending ? "…" : "OK"}
-        </button>
-        <button
-          type="button"
-          className="btn btn-secondary"
-          onClick={() => setOpen(false)}
-        >
-          Cancel
-        </button>
-      </div>
-    </form>
+    <div className="teesheet-book-form">
+      {!booked ? (
+        <form action={bookAction}>
+          <input type="hidden" name="slotId" value={slotId} />
+          <input type="hidden" name="position" value={position} />
+          <FormMessage result={bookState} />
+          <input
+            name="playerName"
+            defaultValue={defaultName}
+            placeholder="Any player name"
+            required
+            aria-label={`Player ${position} name`}
+          />
+          <div className="flex gap-1">
+            <button type="submit" className="btn" disabled={booking}>
+              {booking ? "…" : "OK"}
+            </button>
+            <button
+              type="button"
+              className="btn btn-secondary"
+              onClick={() => setOpen(false)}
+            >
+              Cancel
+            </button>
+          </div>
+        </form>
+      ) : (
+        <div className="grid gap-1">
+          <FormMessage result={bookState} />
+          <FormMessage result={finishState} />
+          {!finished ? (
+            <form action={finishAction}>
+              <input type="hidden" name="dayId" value={dayId} />
+              <button type="submit" className="btn" disabled={finishing}>
+                {finishing ? "Sending…" : "Finished"}
+              </button>
+            </form>
+          ) : (
+            <button
+              type="button"
+              className="btn btn-secondary"
+              onClick={() => window.location.reload()}
+            >
+              Refresh sheet
+            </button>
+          )}
+        </div>
+      )}
+    </div>
   );
 }

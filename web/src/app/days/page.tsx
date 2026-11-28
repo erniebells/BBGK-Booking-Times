@@ -60,7 +60,9 @@ export default async function DaysPage() {
                       {formatClubDate(day.date)}
                     </span>
                     <span className="text-sm text-emerald-900/60">
-                      {day.format === "SHOTGUN" ? "Shotgun" : "Tee Times"}
+                      Format of play:{" "}
+                      {day.formatLabel ||
+                        (day.format === "SHOTGUN" ? "Shotgun" : "Tee Times")}
                     </span>
                   </div>
                   <p className="mt-1 text-sm text-emerald-950/70">

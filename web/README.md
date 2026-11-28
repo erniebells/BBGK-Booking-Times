@@ -51,13 +51,14 @@ Seed demo player: `member@demo.golf` / last 4 of SA ID `8001015009087` → **908
 
 ### Admin create sheets
 
-- **Tee Times (normal)**: Date, Sponsor, first start + slot count (10 min, Tee 1). Grid: TIME \| Player 1–4.
+- **Type of play**: Tee Times (normal) or Shotgun. Sheet shows **Format of play** label + Notes under the date with the sheet name.
+- **Tee Times**: Date, Sponsor, first start + slot count (10 min, Tee 1). Grid: TIME \| Player 1–4.
 - **Shotgun**: Date, Sponsor, one shared start time. Auto slots: Tee 1×3 (start/+10/+20), Tees 2–9×2 (start/+10). Rows ordered **tee then time** (19 rows). Grid: TIME \| TEE \| Player 1–4.
 - Chosen **Date** is stored as a club calendar day (noon UTC anchor) so it displays as the same day after save.
 
-**Clone tee sheet:** Admin home list and day detail have **Clone** → opens the create form prefilled (Date / Sponsor / Format editable). Saves a new **draft** with the same slot times/tees (or shotgun layout from the start time). Bookings are never copied.
+**Clone / Delete / Closed / Cancelled:** Admin list and day detail. Clone opens the create form prefilled (Date / Sponsor / Type of play editable) as a new **draft** (no bookings copied).
 
-Players book **empty cells only**; admin can clear any name. Reset a player under Admin → Accounts.
+Players book **empty cells** with **any player name**. After booking, **Finished** emails + WhatsApps the full day sheet summary to the player’s profile contacts (console log + status when SMTP / WhatsApp env unset). Admin can clear any name. Reset a player under Admin → Accounts.
 
 Tee sheets: **`/days`**.
 

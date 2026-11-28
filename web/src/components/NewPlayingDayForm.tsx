@@ -45,9 +45,9 @@ export function NewPlayingDayForm({
       </h1>
       {isClone && (
         <p className="text-sm text-emerald-950/70">
-          Cloning <strong>{clone!.sourceTitle}</strong> — copies times/tees/format
-          only (no bookings). Change Date, Sponsor, or Format below, then save as a{" "}
-          <strong>draft</strong>.
+          Cloning <strong>{clone!.sourceTitle}</strong> — copies times/tees and
+          type of play only (no bookings). Change Date, Sponsor, or Type of play
+          below, then save as a <strong>draft</strong>.
         </p>
       )}
       <form action={createAction} className="card-stack">
@@ -56,7 +56,7 @@ export function NewPlayingDayForm({
           <input type="hidden" name="cloneFromId" value={clone!.cloneFromId} />
         )}
         <label>
-          Title (optional — defaults to the date)
+          Sheet name (optional — defaults to the date)
           <input
             name="title"
             placeholder="Leave blank to use the date"
@@ -81,7 +81,7 @@ export function NewPlayingDayForm({
           />
         </label>
         <label>
-          Format of the day
+          Type of play
           <select
             name="sheetFormat"
             value={format}
@@ -94,7 +94,7 @@ export function NewPlayingDayForm({
           </select>
         </label>
         <label>
-          Format label
+          Format of play (label on sheet)
           <input
             name="formatLabel"
             key={format}
@@ -140,7 +140,8 @@ export function NewPlayingDayForm({
             {isClone && clone?.sheetFormat === "TEE_TIMES" && (
               <p className="sm:col-span-2 text-sm text-emerald-950/70">
                 Keeping Tee Times copies the source slot times exactly (empty
-                cells). Change Format to rebuild with First start / slot count.
+                cells). Change Type of play to rebuild with First start / slot
+                count.
               </p>
             )}
           </div>

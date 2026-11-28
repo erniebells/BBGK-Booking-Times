@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { formatClubDate } from "@/lib/slots";
+import { AdminDayActions } from "@/components/AdminDayActions";
 
 export default async function AdminHomePage() {
   const session = await auth();
@@ -48,16 +49,12 @@ export default async function AdminHomePage() {
                   className="min-w-0 flex-1 hover:text-emerald-800"
                 >
                   {formatClubDate(d.date)} · {d.title} ·{" "}
-                  {d.format === "SHOTGUN" ? "Shotgun" : "Tee Times"}
+                  {d.formatLabel ||
+                    (d.format === "SHOTGUN" ? "Shotgun" : "Tee Times")}
                   {d.sponsor ? ` · ${d.sponsor}` : ""}
                   <span className="ml-2 text-emerald-900/55">{d.status}</span>
                 </Link>
-                <Link
-                  href={`/admin/days/new?cloneFrom=${d.id}`}
-                  className="btn btn-secondary shrink-0 text-xs"
-                >
-                  Clone
-                </Link>
+                <AdminDayActions dayId={d.id} status={d.status} compact />
               </li>
             ))}
           </ul>

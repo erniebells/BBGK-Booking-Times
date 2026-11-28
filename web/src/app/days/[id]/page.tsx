@@ -41,31 +41,32 @@ export default async function DayDetailPage({
     provisional: session.user.provisional,
   });
   const allowBook =
-    canBookSession(session.user) && eligibility.ok && day.date.getTime() >= Date.now() - 86400000;
+    canBookSession(session.user) &&
+    eligibility.ok &&
+    day.date.getTime() >= Date.now() - 86400000;
   const isAdmin = session.user.role === "ADMIN";
   const showTee = day.format === "SHOTGUN";
+  const formatOfPlay =
+    day.formatLabel ||
+    (day.format === "SHOTGUN" ? "Shotgun" : "Tee Times");
 
   return (
     <div className="card-stack">
       <Link href="/days" className="text-sm text-emerald-800 underline">
         All dates
       </Link>
-      {day.notes && (
-        <p className="text-sm text-emerald-950/70">{day.notes}</p>
-      )}
       <TeeSheetGrid
+        dayId={day.id}
         dayTitle={day.title}
         dateLabel={formatClubDate(day.date)}
         sponsor={day.sponsor}
-        formatLabel={
-          day.formatLabel ||
-          (day.format === "SHOTGUN" ? "Shotgun" : "Tee Times")
-        }
+        formatLabel={formatOfPlay}
+        notes={day.notes}
         showTeeColumn={showTee}
         slots={day.slots}
         canBook={allowBook || isAdmin}
         isAdmin={isAdmin}
-        defaultPlayerName={session.user.name || ""}
+        defaultPlayerName=""
         viewOnlyReason={
           allowBook || isAdmin
             ? null
