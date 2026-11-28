@@ -72,19 +72,36 @@ export async function loginAction(
     return { ok: false, error: `Too many attempts. Try again in ${rl.retryAfterSec}s.` };
   }
 
+  // Resolve destination WITHOUT calling auth() in this same request —
+  // the new session cookie is often not visible to auth() until the next request.
+  const { authenticateCredentials } = await import("@/lib/authenticate");
+  const identified = await authenticateCredentials(email, password);
+  if (!identified) {
+    return {
+      ok: false,
+      error:
+        "Invalid email or password. Admin: email admin@demo.golf + ADMIN_PASSWORD from web/.env (then restart). Player first visit: club password only. After My Details: email + last 4 of SA ID.",
+    };
+  }
+
   try {
     const result = await signIn("credentials", {
       email,
       password,
       rememberMe: rememberMe ? "1" : "",
       redirect: false,
-      redirectTo: requestedRedirect || "/days",
+      redirectTo:
+        identified.role === "ADMIN"
+          ? "/admin"
+          : identified.provisional || !identified.profileComplete
+            ? "/account/details"
+            : requestedRedirect || "/days",
     });
     if (isFailedSignInResult(result)) {
       return {
         ok: false,
         error:
-          "Sign-in failed. Admin: use admin email + ADMIN_PASSWORD (or seeded admin password). Players: club password alone, or email + last 4 of SA ID.",
+          "Sign-in failed after password check. If you use http://localhost, ensure AUTH_URL=http://localhost:3000 (not https) so the session cookie is not Secure-only.",
       };
     }
   } catch (e) {
@@ -92,29 +109,22 @@ export async function loginAction(
       return {
         ok: false,
         error:
-          "Sign-in failed. Admin: use admin email + ADMIN_PASSWORD (or seeded admin password). Players: club password alone, or email + last 4 of SA ID.",
+          "Sign-in failed. Check ADMIN_PASSWORD / INITIAL_MEMBER_PASSWORD in web/.env and restart the app.",
       };
     }
     throw e;
   }
 
-  const session = await auth();
-  if (!session?.user) {
-    return { ok: false, error: "Sign-in failed — no session created." };
+  if (identified.role === "ADMIN") {
+    redirect(
+      requestedRedirect && requestedRedirect.startsWith("/admin")
+        ? requestedRedirect
+        : "/admin",
+    );
   }
-
-  // Admin → admin home (unless a safe callback was provided).
-  if (session.user.role === "ADMIN") {
-    redirect(requestedRedirect && requestedRedirect.startsWith("/admin")
-      ? requestedRedirect
-      : "/admin");
-  }
-
-  // Shared-password / incomplete profile → My Details (view-only until done).
-  if (!session.user.profileComplete || session.user.provisional) {
+  if (identified.provisional || !identified.profileComplete) {
     redirect("/account/details");
   }
-
   redirect(requestedRedirect || "/days");
 }
 

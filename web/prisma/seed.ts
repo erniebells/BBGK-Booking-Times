@@ -15,6 +15,7 @@ import {
   parseClubDateInput,
 } from "../src/lib/slots";
 import { hashSaId, saIdLastFour } from "../src/lib/sa-id";
+import { normalizeEnvSecret } from "../src/lib/passwords";
 
 const prisma = new PrismaClient();
 
@@ -36,9 +37,9 @@ function clubDateDaysFromNow(days: number): Date {
 }
 
 async function main() {
-  const adminPassword = process.env.ADMIN_PASSWORD?.trim() || "admin123!";
+  const adminPassword = normalizeEnvSecret(process.env.ADMIN_PASSWORD) || "admin123!";
   const initialMember =
-    process.env.INITIAL_MEMBER_PASSWORD?.trim() || "BBGK2026";
+    normalizeEnvSecret(process.env.INITIAL_MEMBER_PASSWORD) || "BBGK2026";
 
   await prisma.clubSettings.upsert({
     where: { id: 1 },

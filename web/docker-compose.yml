@@ -25,6 +25,12 @@ services:
       DATABASE_URL: postgresql://golf:golf@db:5432/golf_tee
       AUTH_URL: http://localhost:3000
       AUTH_TRUST_HOST: "true"
+      # Explicit passthrough so admin/club passwords are always in the app process
+      # (env_file alone is easy to miss if .env is incomplete).
+      ADMIN_PASSWORD: "${ADMIN_PASSWORD:-admin123!}"
+      INITIAL_MEMBER_PASSWORD: "${INITIAL_MEMBER_PASSWORD:-BBGK2026}"
+      # Force non-Secure cookies for local http://localhost (NODE_ENV=production otherwise sets Secure).
+      AUTH_COOKIE_SECURE: "false"
       NODE_ENV: production
     ports:
       - "3000:3000"
