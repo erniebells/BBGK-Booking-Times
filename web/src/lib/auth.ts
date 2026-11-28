@@ -37,11 +37,25 @@ const credentialsSchema = z.object({
   password: z.string().min(1),
 });
 
+const authSecret = process.env.AUTH_SECRET;
+if (!authSecret) {
+  console.error(
+    "[auth] AUTH_SECRET is unset. Set it in web/.env (compose loads via env_file). JWT sessions will fail.",
+  );
+}
+
 export const { handlers, auth, signIn, signOut } = NextAuth({
   // AUTH_TRUST_HOST / AUTH_URL from env; trustHost avoids absolute redirect
   // issues when the app is reached via Docker or a non-localhost host.
   trustHost: true,
-  session: { strategy: "jwt" },
+  // Explicit secret so Edge middleware (getToken) and Node auth() always match.
+  // Changing AUTH_SECRET invalidates cookies → JWTSessionError until browser clears them.
+  secret: authSecret,
+  session: {
+    strategy: "jwt",
+    // Default Auth.js JWT lifetime; "remember me" can extend via maxAge on sign-in later.
+    maxAge: 30 * 24 * 60 * 60,
+  },
   pages: {
     signIn: "/login",
   },

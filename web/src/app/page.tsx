@@ -1,9 +1,9 @@
 import Link from "next/link";
-import { auth } from "@/lib/auth";
 import { getClubSettings } from "@/lib/club";
+import { safeAuth } from "@/lib/safe-auth";
 
 export default async function HomePage() {
-  const session = await auth();
+  const session = await safeAuth();
   const settings = await getClubSettings();
 
   return (
