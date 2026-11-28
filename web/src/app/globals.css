@@ -76,3 +76,98 @@ label {
   display: grid;
   gap: 1rem;
 }
+
+/* Yellow club tee-sheet grid (English labels) */
+.teesheet-sponsor-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  background: #f5d547;
+  color: #1a1a1a;
+  padding: 0.65rem 1rem;
+  font-weight: 600;
+  border: 1px solid #c9a80e;
+}
+
+.teesheet-wrap {
+  overflow-x: auto;
+  border: 1px solid #c9a80e;
+  background: #fffef5;
+}
+
+.teesheet-table {
+  width: 100%;
+  border-collapse: collapse;
+  min-width: 640px;
+  font-size: 0.92rem;
+}
+
+.teesheet-table th {
+  background: #f5d547;
+  border: 1px solid #c9a80e;
+  padding: 0.45rem 0.5rem;
+  text-align: left;
+  font-weight: 700;
+  text-transform: none;
+}
+
+.teesheet-table td {
+  border: 1px solid #d6c56a;
+  padding: 0.35rem 0.45rem;
+  vertical-align: middle;
+}
+
+.teesheet-time,
+.teesheet-tee {
+  font-weight: 700;
+  white-space: nowrap;
+  background: #fff8d1;
+}
+
+.teesheet-filled {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.35rem;
+  min-height: 1.75rem;
+}
+
+.teesheet-empty {
+  color: #999;
+}
+
+.teesheet-book {
+  width: 100%;
+  min-height: 2rem;
+  border: 1px dashed #b89f20;
+  background: #fffce8;
+  color: #5c4d00;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.teesheet-book:hover {
+  background: #fff3b0;
+}
+
+.teesheet-book-form {
+  display: grid;
+  gap: 0.35rem;
+}
+
+.teesheet-book-form input {
+  padding: 0.3rem 0.4rem;
+  font-size: 0.85rem;
+}
+
+.teesheet-clear {
+  font-size: 0.7rem;
+  color: #8b1a1a;
+  text-decoration: underline;
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 0;
+}

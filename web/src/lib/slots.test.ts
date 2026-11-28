@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { generateSlotTimes, parseTimeToMinutes } from "./slots";
+import {
+  generateShotgunSlotsFromTeeTimes,
+  generateSlotTimes,
+  generateTeeTimeSlots,
+  parseTimeToMinutes,
+} from "./slots";
 
 describe("generateSlotTimes", () => {
   it("generates inclusive 10-minute slots", () => {
@@ -21,6 +26,35 @@ describe("generateSlotTimes", () => {
 
   it("rejects bad interval", () => {
     expect(() => generateSlotTimes("07:00", "08:00", 0)).toThrow(/positive/);
+  });
+});
+
+describe("generateTeeTimeSlots", () => {
+  it("builds N slots from start at 10 minutes", () => {
+    expect(generateTeeTimeSlots("07:00", 3, 10)).toEqual([
+      "07:00",
+      "07:10",
+      "07:20",
+    ]);
+  });
+});
+
+describe("generateShotgunSlotsFromTeeTimes", () => {
+  it("builds variable times per tee across 9 tees", () => {
+    const slots = generateShotgunSlotsFromTeeTimes({
+      1: ["10:30", "10:40", "10:50"],
+      2: ["10:30", "10:40"],
+      3: [],
+      4: [],
+      5: [],
+      6: [],
+      7: [],
+      8: [],
+      9: [],
+    });
+    expect(slots).toHaveLength(5);
+    expect(slots.filter((s) => s.teeNumber === 1)).toHaveLength(3);
+    expect(slots[0]).toEqual({ teeNumber: 1, startTime: "10:30" });
   });
 });
 

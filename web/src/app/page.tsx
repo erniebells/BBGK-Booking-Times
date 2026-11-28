@@ -23,23 +23,19 @@ export default async function HomePage() {
             Book your fourball online
           </h1>
           <p className="mt-3 max-w-md text-sm leading-relaxed text-emerald-50/80">
-            Members and approved guests reserve tee times for normal days and
-            tournaments. Times shown in South African local time.
+            Sign in with the club password, complete My Details, then book empty
+            cells on shotgun and tee-time sheets. Times in South African local
+            time.
           </p>
           <div className="mt-6 flex flex-wrap gap-3">
             {session?.user ? (
               <Link href="/days" className="btn bg-white text-emerald-950">
-                View tee times
+                View tee sheets
               </Link>
             ) : (
-              <>
-                <Link href="/login" className="btn bg-white text-emerald-950">
-                  Sign in
-                </Link>
-                <Link href="/register" className="btn btn-secondary border-white/40 text-white">
-                  Register as guest
-                </Link>
-              </>
+              <Link href="/login" className="btn bg-white text-emerald-950">
+                Sign in
+              </Link>
             )}
           </div>
         </div>
@@ -48,9 +44,10 @@ export default async function HomePage() {
       <section className="grid gap-2 max-w-2xl">
         <h2 className="font-display text-2xl text-emerald-950">How it works</h2>
         <p className="text-emerald-950/75">
-          Guests verify an email address, then wait for club approval before
-          booking. Members sign in with club-managed accounts. Each tee time
-          holds up to four players.
+          Use the shared club password first (view only). Complete My Details
+          with your SA ID — your password becomes the last four digits. Then
+          click empty Player cells on published sheets. Existing names cannot be
+          changed by players.
         </p>
       </section>
     </div>

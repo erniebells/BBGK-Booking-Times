@@ -1,15 +1,18 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { auth } from "@/lib/auth";
+import { canBookSession } from "@/lib/auth";
+import { safeAuth } from "@/lib/safe-auth";
 import { prisma } from "@/lib/prisma";
-import { canBook } from "@/lib/booking";
 import { formatClubDate } from "@/lib/slots";
 
 export default async function DaysPage() {
-  const session = await auth();
+  const session = await safeAuth();
   if (!session?.user) redirect("/login");
 
-  const eligibility = canBook(session.user);
+  if (!session.user.profileComplete || session.user.provisional) {
+    // View-only still allowed to browse dates; banner below.
+  }
+
   const days = await prisma.playingDay.findMany({
     where: { status: "PUBLISHED" },
     orderBy: { date: "asc" },
@@ -22,15 +25,18 @@ export default async function DaysPage() {
     },
   });
 
+  const canBook = canBookSession(session.user);
+
   return (
     <div className="card-stack">
-      <h1 className="font-display text-3xl text-emerald-950">Open tee sheets</h1>
-      {!eligibility.ok && (
+      <h1 className="font-display text-3xl text-emerald-950">Tee sheets</h1>
+      {!canBook && (
         <p className="rounded-md bg-amber-50 px-3 py-2 text-sm text-amber-950">
-          {eligibility.reason}{" "}
-          <Link href="/account/status" className="underline">
-            View account status
-          </Link>
+          View only —{" "}
+          <Link href="/account/details" className="underline">
+            complete My Details
+          </Link>{" "}
+          (playing name, email, WhatsApp, SA ID) to book empty cells.
         </p>
       )}
       {days.length === 0 ? (
@@ -42,6 +48,7 @@ export default async function DaysPage() {
               (sum, s) => sum + (s.capacity - s.places.length),
               0,
             );
+            const taken = day.slots.reduce((sum, s) => sum + s.places.length, 0);
             return (
               <li key={day.id}>
                 <Link
@@ -50,16 +57,16 @@ export default async function DaysPage() {
                 >
                   <div className="flex flex-wrap items-baseline justify-between gap-2">
                     <span className="font-display text-xl text-emerald-950">
-                      {day.title}
+                      {formatClubDate(day.date)}
                     </span>
                     <span className="text-sm text-emerald-900/60">
-                      {formatClubDate(day.date)}
+                      {day.format === "SHOTGUN" ? "Shotgun" : "Tee Times"}
                     </span>
                   </div>
                   <p className="mt-1 text-sm text-emerald-950/70">
-                    {day.type === "TOURNAMENT" ? "Tournament" : "Normal day"}
-                    {day.formatLabel ? ` · ${day.formatLabel}` : ""} ·{" "}
-                    {openPlaces} places open
+                    {day.title}
+                    {day.sponsor ? ` · Sponsor: ${day.sponsor}` : ""} · Players{" "}
+                    {taken} · {openPlaces} open
                   </p>
                 </Link>
               </li>

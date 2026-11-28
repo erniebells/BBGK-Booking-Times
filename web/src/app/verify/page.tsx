@@ -1,38 +1,17 @@
-import { ActionForm } from "@/components/ActionForm";
-import { resendVerification, verifyEmail } from "@/actions/auth";
+import Link from "next/link";
 
-export default async function VerifyPage({
-  searchParams,
-}: {
-  searchParams: Promise<{ email?: string }>;
-}) {
-  const { email = "" } = await searchParams;
+/** Guest email verification removed with guest registration. */
+export default function VerifyClosedPage() {
   return (
     <div className="mx-auto max-w-md card-stack">
-      <h1 className="font-display text-3xl text-emerald-950">Verify email</h1>
+      <h1 className="font-display text-3xl text-emerald-950">Verification</h1>
       <p className="text-sm text-emerald-950/70">
-        Enter the 6-digit code sent to your email. In local development without
-        SMTP, the code is printed in the server console.
+        Guest email verification is no longer used. Sign in with the club
+        password and complete My Details.
       </p>
-      <ActionForm action={verifyEmail} className="card-stack">
-        <label>
-          Email
-          <input name="email" type="email" required defaultValue={email} />
-        </label>
-        <label>
-          Code
-          <input name="code" inputMode="numeric" pattern="\d{6}" required />
-        </label>
-        <button type="submit" className="btn">
-          Verify
-        </button>
-      </ActionForm>
-      <ActionForm action={resendVerification} className="card-stack">
-        <input type="hidden" name="email" value={email} />
-        <button type="submit" className="btn btn-secondary">
-          Resend code
-        </button>
-      </ActionForm>
+      <Link href="/login" className="btn w-fit">
+        Sign in
+      </Link>
     </div>
   );
 }

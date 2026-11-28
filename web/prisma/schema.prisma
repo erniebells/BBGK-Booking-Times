@@ -25,6 +25,11 @@ enum PlayingDayType {
   TOURNAMENT
 }
 
+enum PlayingDayFormat {
+  SHOTGUN
+  TEE_TIMES
+}
+
 enum PlayingDayStatus {
   DRAFT
   PUBLISHED
@@ -36,8 +41,12 @@ model User {
   id              String        @id @default(cuid())
   email           String        @unique
   phone           String?
+  whatsapp        String?
   name            String
   passwordHash    String
+  idNumberHash    String?
+  idLastFour      String?
+  profileComplete Boolean       @default(false)
   role            Role
   status          AccountStatus @default(PENDING_APPROVAL)
   emailVerifiedAt DateTime?
@@ -58,18 +67,20 @@ model ClubSettings {
 }
 
 model PlayingDay {
-  id              String           @id @default(cuid())
+  id              String             @id @default(cuid())
   title           String
   date            DateTime
-  type            PlayingDayType   @default(NORMAL)
+  type            PlayingDayType     @default(NORMAL)
+  format          PlayingDayFormat   @default(TEE_TIMES)
   formatLabel     String?
+  sponsor         String?
   notes           String?
   firstTeeTime    String
   lastTeeTime     String
-  intervalMinutes Int              @default(10)
-  status          PlayingDayStatus @default(DRAFT)
-  createdAt       DateTime         @default(now())
-  updatedAt       DateTime         @updatedAt
+  intervalMinutes Int                @default(10)
+  status          PlayingDayStatus   @default(DRAFT)
+  createdAt       DateTime           @default(now())
+  updatedAt       DateTime           @updatedAt
 
   slots TeeSlot[]
 }
@@ -79,13 +90,15 @@ model TeeSlot {
   dayId     String
   startsAt  DateTime
   capacity  Int      @default(4)
+  teeNumber Int      @default(1)
   createdAt DateTime @default(now())
 
   day    PlayingDay     @relation(fields: [dayId], references: [id], onDelete: Cascade)
   places BookingPlace[]
 
-  @@unique([dayId, startsAt])
+  @@unique([dayId, startsAt, teeNumber])
   @@index([startsAt])
+  @@index([teeNumber])
 }
 
 model Booking {

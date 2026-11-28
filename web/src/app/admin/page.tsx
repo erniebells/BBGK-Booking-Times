@@ -8,11 +8,8 @@ export default async function AdminHomePage() {
   const session = await auth();
   if (!session?.user || session.user.role !== "ADMIN") redirect("/login");
 
-  const [days, pendingGuests, recentAudit] = await Promise.all([
+  const [days, recentAudit] = await Promise.all([
     prisma.playingDay.findMany({ orderBy: { date: "desc" }, take: 20 }),
-    prisma.user.count({
-      where: { role: "GUEST", status: "PENDING_APPROVAL", emailVerifiedAt: { not: null } },
-    }),
     prisma.auditLog.findMany({
       orderBy: { createdAt: "desc" },
       take: 8,
@@ -25,13 +22,10 @@ export default async function AdminHomePage() {
       <h1 className="font-display text-3xl text-emerald-950">Club admin</h1>
       <nav className="flex flex-wrap gap-3 text-sm">
         <Link href="/admin/days/new" className="btn">
-          New playing day
-        </Link>
-        <Link href="/admin/guests" className="btn btn-secondary">
-          Guest queue ({pendingGuests})
+          New tee sheet
         </Link>
         <Link href="/admin/accounts" className="btn btn-secondary">
-          Accounts
+          Accounts / reset players
         </Link>
         <Link href="/admin/audit" className="btn btn-secondary">
           Audit log
@@ -51,7 +45,9 @@ export default async function AdminHomePage() {
                   className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-emerald-900/10 bg-white/80 px-3 py-2 text-sm hover:border-emerald-700/40"
                 >
                   <span>
-                    {d.title} · {formatClubDate(d.date)}
+                    {formatClubDate(d.date)} · {d.title} ·{" "}
+                    {d.format === "SHOTGUN" ? "Shotgun" : "Tee Times"}
+                    {d.sponsor ? ` · ${d.sponsor}` : ""}
                   </span>
                   <span className="text-emerald-900/55">{d.status}</span>
                 </Link>

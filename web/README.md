@@ -1,52 +1,37 @@
 # Golf Tee Booking (app)
 
-Postgres + Docker is the supported path on this branch. Do **not** use SQLite or the old `file:./dev.db` migrations — `prisma migrate deploy` will fail with **P3019** against Postgres.
+Postgres + Docker is the supported path. Do **not** use SQLite — `prisma migrate deploy` fails with **P3019** against Postgres if the old lock is present.
 
 ## Docker Compose (recommended)
 
 ```bash
 cd web
 cp .env.example .env
-# Set a stable AUTH_SECRET (never hardcode it in docker-compose.yml).
-# Changing AUTH_SECRET requires clearing browser cookies for localhost.
+# Set stable AUTH_SECRET, INITIAL_MEMBER_PASSWORD, ADMIN_PASSWORD
+# (never hardcode AUTH_SECRET in docker-compose.yml).
 
-docker compose down -v   # only if you need a fresh DB volume
 docker compose up -d --build
-
-# Wait until app is up, then seed (tsx is a production dependency; works in the image):
 docker compose exec app npm run db:seed
-# equivalent: docker compose exec app npx tsx prisma/seed.ts
-# or:         docker compose exec app npx prisma db seed
-
 curl -I http://localhost:3000
 ```
 
-Optional auto-seed on boot: set `RUN_SEED=true` in `.env` (entrypoint runs `npx tsx prisma/seed.ts` after migrate).
+### Passwords
 
-### Seed accounts
+| Who | How |
+|-----|-----|
+| Player (first) | `INITIAL_MEMBER_PASSWORD` only → view-only → **My Details** |
+| Player (ongoing) | email + **last 4 of SA ID** |
+| Admin | `admin@demo.golf` + `ADMIN_PASSWORD` |
 
-| Role   | Email             | Password    |
-|--------|-------------------|-------------|
-| Admin  | admin@demo.golf   | admin123!   |
-| Member | member@demo.golf  | member123!  |
+Seed demo player: `member@demo.golf` / last 4 of seeded SA ID `8001015009087` → **9087**.
 
-### Post-login Application error (digest)
+### Admin create sheets
 
-Local logs for digest crashes often show:
+- **Shotgun**: Date, Sponsor, Format=Shotgun, times-per-tee for tees 1–9. Grid: TIME \| TEE \| Player 1–4.
+- **Tee Times**: Date, Sponsor, Format=Tee Times, first start + slot count (10 min, Tee 1). Grid: TIME \| Player 1–4.
 
-1. **`P2021` RateLimitBucket missing** — migrations never applied (wrong/old SQLite tree, or P3019). Fix: rebuild **this** Postgres branch image; entrypoint runs `prisma migrate deploy` (creates `RateLimitBucket`).
-2. **`JWTSessionError` no matching decryption secret** — `AUTH_SECRET` changed or cookies from another secret. Fix: keep one stable `AUTH_SECRET` in `.env`, then clear cookies for `localhost:3000` (or use a private window).
+Players book **empty cells only**; admin can clear any name. Reset a player under Admin → Accounts.
 
-Tee sheets for members live at **`/days`** (not `/dates`).
-
-## Host-side Node (without Compose app)
-
-```bash
-# Point at published Postgres on localhost
-DATABASE_URL="postgresql://golf:golf@localhost:5432/golf_tee" npm install
-npx prisma migrate deploy
-npm run db:seed
-npm run dev
-```
+Tee sheets: **`/days`**.
 
 See the repository [README](../README.md) for product context.

@@ -134,3 +134,67 @@ export function formatClubDate(date: Date, timeZone = CLUB_TZ): string {
     dateStyle: "full",
   }).format(date);
 }
+
+/** One shotgun row: a single (time, tee) group with 4 player places. */
+export interface ShotgunSlotSpec {
+  teeNumber: number;
+  startTime: string;
+}
+
+/**
+ * Build shotgun slots from per-tee time lists (tees 1..9).
+ * Each tee may have a different number of times.
+ */
+export function generateShotgunSlotsFromTeeTimes(
+  timesByTee: Record<number, string[]>,
+): ShotgunSlotSpec[] {
+  const slots: ShotgunSlotSpec[] = [];
+  for (let tee = 1; tee <= 9; tee++) {
+    const times = timesByTee[tee] ?? [];
+    const seen = new Set<string>();
+    for (const raw of times) {
+      const t = raw.trim();
+      if (!t) continue;
+      parseTimeToMinutes(t);
+      if (seen.has(t)) {
+        throw new Error(`Duplicate time ${t} on Tee ${tee}.`);
+      }
+      seen.add(t);
+      slots.push({ teeNumber: tee, startTime: t });
+    }
+  }
+  if (slots.length === 0) {
+    throw new Error("Add at least one tee time on one of the 9 tees.");
+  }
+  return slots.sort((a, b) => {
+    const ta = parseTimeToMinutes(a.startTime);
+    const tb = parseTimeToMinutes(b.startTime);
+    if (ta !== tb) return ta - tb;
+    return a.teeNumber - b.teeNumber;
+  });
+}
+
+/** Parse a comma / newline / space separated list of HH:MM times. */
+export function parseTimeList(raw: string): string[] {
+  return raw
+    .split(/[\s,;]+/)
+    .map((t) => t.trim())
+    .filter(Boolean);
+}
+
+/** Tee-times format: N slots from first start at 10-minute interval, all Tee 1. */
+export function generateTeeTimeSlots(
+  firstTeeTime: string,
+  slotCount: number,
+  intervalMinutes = 10,
+): string[] {
+  if (!Number.isInteger(slotCount) || slotCount < 1 || slotCount > 80) {
+    throw new Error("Number of slots must be between 1 and 80.");
+  }
+  const start = parseTimeToMinutes(firstTeeTime);
+  const times: string[] = [];
+  for (let i = 0; i < slotCount; i++) {
+    times.push(minutesToTime(start + i * intervalMinutes));
+  }
+  return times;
+}
